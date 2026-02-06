@@ -1,0 +1,132 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    ports:
+      - "8000:8000"
+      - "5173:5173"
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor
+      - /var/www/html/node_modules
+    environment:
+      - APP_ENV=local
+      - DB_CONNECTION=pgsql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=simpletickets
+      - DB_USERNAME=simpletickets
+      - DB_PASSWORD=secret
+      - REDIS_HOST=redis
+      - MAIL_MAILER=smtp
+      - MAIL_HOST=mailpit
+      - MAIL_PORT=1025
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - simpletickets
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: simpletickets
+      POSTGRES_USER: simpletickets
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U simpletickets"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - simpletickets
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - simpletickets
+
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    networks:
+      - simpletickets
+
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor
+    environment:
+      - APP_ENV=local
+      - DB_CONNECTION=pgsql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=simpletickets
+      - DB_USERNAME=simpletickets
+      - DB_PASSWORD=secret
+      - REDIS_HOST=redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - simpletickets
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    command: php artisan schedule:work
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor
+    environment:
+      - APP_ENV=local
+      - DB_CONNECTION=pgsql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=simpletickets
+      - DB_USERNAME=simpletickets
+      - DB_PASSWORD=secret
+      - REDIS_HOST=redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - simpletickets
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  simpletickets:
+    driver: bridge
