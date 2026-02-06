@@ -4,6 +4,8 @@ A modern, open-source support ticketing system with a powerful email importer. B
 
 QueueFix does **one thing well: support tickets.** No bloat, no unnecessary features — just a clean, fast ticketing system that your team will actually enjoy using.
 
+[![Laravel Forge Site Deployment Status](https://img.shields.io/endpoint?url=https%3A%2F%2Fforge.laravel.com%2Fsite-badges%2Fa8c339b1-c9d3-4f1d-81c7-78851f7b4408&style=plastic)](https://forge.laravel.com/paul-stoute/limitless-brook-aas/3033773)
+
 ## Features
 
 - **Email Import** — Connect via IMAP, Gmail API, or Microsoft Graph. Automatically creates tickets from incoming emails with smart threading.
