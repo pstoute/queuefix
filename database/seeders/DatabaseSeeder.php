@@ -155,6 +155,15 @@ class DatabaseSeeder extends Seeder
             'created_by' => $admin->id,
         ]);
 
+        // Create default settings (before tickets so ticket_counter exists for number generation)
+        Setting::set('app_name', 'QueueFix', 'general');
+        Setting::set('app_url', 'http://localhost:8000', 'general');
+        Setting::set('timezone', 'UTC', 'general');
+        Setting::set('default_language', 'en', 'general');
+        Setting::set('ticket_prefix', 'QF', 'general');
+        Setting::set('accent_color', '#6366f1', 'appearance');
+        Setting::set('ticket_counter', '0', 'system');
+
         // Create sample tickets with messages
         $ticketData = [
             [
@@ -290,15 +299,5 @@ class DatabaseSeeder extends Seeder
             }
         }
 
-        // Create default settings
-        Setting::create(['key' => 'app_name', 'value' => 'QueueFix', 'group' => 'general']);
-        Setting::create(['key' => 'app_url', 'value' => 'http://localhost:8000', 'group' => 'general']);
-        Setting::create(['key' => 'timezone', 'value' => 'UTC', 'group' => 'general']);
-        Setting::create(['key' => 'default_language', 'value' => 'en', 'group' => 'general']);
-        Setting::create(['key' => 'ticket_prefix', 'value' => 'QF', 'group' => 'general']);
-        Setting::create(['key' => 'accent_color', 'value' => '#6366f1', 'group' => 'appearance']);
-
-        // Ticket counter tracks the last assigned ticket number for atomic generation
-        Setting::create(['key' => 'ticket_counter', 'value' => '8', 'group' => 'system']);
     }
 }
