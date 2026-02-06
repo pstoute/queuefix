@@ -27,6 +27,7 @@ class GeneralSettingsController extends Controller
             'app_url' => 'required|url',
             'timezone' => 'required|string|timezone',
             'default_language' => 'required|string|max:10',
+            'ticket_prefix' => 'required|string|alpha_num|min:1|max:10',
         ]);
 
         foreach ($validated as $key => $value) {

@@ -11,7 +11,7 @@ interface CustomerLoginProps {
     appName?: string;
 }
 
-export default function CustomerLogin({ status, appName = 'SimpleTickets' }: CustomerLoginProps) {
+export default function CustomerLogin({ status, appName = 'QueueFix' }: CustomerLoginProps) {
     const { data, setData, post, processing, errors } = useForm({
         email: '',
     });

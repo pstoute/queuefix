@@ -41,10 +41,11 @@ const languages = [
 
 export default function General({ settings }: GeneralSettingsProps) {
     const { data, setData, put, processing, errors } = useForm({
-        app_name: settings.app_name || 'SimpleTickets',
+        app_name: settings.app_name || 'QueueFix',
         app_url: settings.app_url || '',
         timezone: settings.timezone || 'UTC',
-        language: settings.language || 'en',
+        default_language: settings.default_language || 'en',
+        ticket_prefix: settings.ticket_prefix || 'QF',
     });
 
     const submit: FormEventHandler = (e) => {
@@ -81,10 +82,27 @@ export default function General({ settings }: GeneralSettingsProps) {
                                     id="app_name"
                                     value={data.app_name}
                                     onChange={(e) => setData('app_name', e.target.value)}
-                                    placeholder="SimpleTickets"
+                                    placeholder="QueueFix"
                                 />
                                 {errors.app_name && (
                                     <p className="text-sm text-destructive">{errors.app_name}</p>
+                                )}
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="ticket_prefix">Ticket Prefix</Label>
+                                <Input
+                                    id="ticket_prefix"
+                                    value={data.ticket_prefix}
+                                    onChange={(e) => setData('ticket_prefix', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                                    placeholder="QF"
+                                    maxLength={10}
+                                />
+                                <p className="text-sm text-muted-foreground">
+                                    Prefix for ticket numbers (e.g., {data.ticket_prefix || 'QF'}-1, {data.ticket_prefix || 'QF'}-2). Letters and numbers only.
+                                </p>
+                                {errors.ticket_prefix && (
+                                    <p className="text-sm text-destructive">{errors.ticket_prefix}</p>
                                 )}
                             </div>
 
@@ -125,12 +143,12 @@ export default function General({ settings }: GeneralSettingsProps) {
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="language">Default Language</Label>
+                                <Label htmlFor="default_language">Default Language</Label>
                                 <Select
-                                    value={data.language}
-                                    onValueChange={(value) => setData('language', value)}
+                                    value={data.default_language}
+                                    onValueChange={(value) => setData('default_language', value)}
                                 >
-                                    <SelectTrigger id="language">
+                                    <SelectTrigger id="default_language">
                                         <SelectValue placeholder="Select language" />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -141,8 +159,8 @@ export default function General({ settings }: GeneralSettingsProps) {
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                {errors.language && (
-                                    <p className="text-sm text-destructive">{errors.language}</p>
+                                {errors.default_language && (
+                                    <p className="text-sm text-destructive">{errors.default_language}</p>
                                 )}
                             </div>
 

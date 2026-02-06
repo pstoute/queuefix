@@ -7,8 +7,10 @@ use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Message;
+use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 class TicketService
@@ -19,31 +21,41 @@ class TicketService
 
     public function createTicket(array $data, Customer $customer, ?string $mailboxId = null): Ticket
     {
-        return DB::transaction(function () use ($data, $customer, $mailboxId) {
-            $ticket = Ticket::create([
-                'subject' => $data['subject'],
-                'status' => TicketStatus::Open,
-                'priority' => $data['priority'] ?? TicketPriority::Normal,
-                'customer_id' => $customer->id,
-                'assigned_to' => $data['assigned_to'] ?? null,
-                'mailbox_id' => $mailboxId,
-                'last_activity_at' => now(),
-            ]);
+        $maxAttempts = 3;
 
-            if (! empty($data['body'])) {
-                $this->addMessage($ticket, [
-                    'type' => MessageType::Reply,
-                    'body_text' => strip_tags($data['body']),
-                    'body_html' => $data['body'],
-                    'sender_type' => Customer::class,
-                    'sender_id' => $customer->id,
-                ]);
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                return DB::transaction(function () use ($data, $customer, $mailboxId) {
+                    $ticket = Ticket::create([
+                        'subject' => $data['subject'],
+                        'status' => TicketStatus::Open,
+                        'priority' => $data['priority'] ?? TicketPriority::Normal,
+                        'customer_id' => $customer->id,
+                        'assigned_to' => $data['assigned_to'] ?? null,
+                        'mailbox_id' => $mailboxId,
+                        'last_activity_at' => now(),
+                    ]);
+
+                    if (! empty($data['body'])) {
+                        $this->addMessage($ticket, [
+                            'type' => MessageType::Reply,
+                            'body_text' => strip_tags($data['body']),
+                            'body_html' => $data['body'],
+                            'sender_type' => Customer::class,
+                            'sender_id' => $customer->id,
+                        ]);
+                    }
+
+                    $this->slaService->initializeTimer($ticket);
+
+                    return $ticket;
+                });
+            } catch (UniqueConstraintViolationException $e) {
+                if ($attempt === $maxAttempts) {
+                    throw $e;
+                }
             }
-
-            $this->slaService->initializeTimer($ticket);
-
-            return $ticket;
-        });
+        }
     }
 
     public function addMessage(Ticket $ticket, array $data): Message
@@ -116,13 +128,9 @@ class TicketService
 
     public function getNextTicketNumber(): string
     {
-        $lastTicket = Ticket::orderByRaw("CAST(REPLACE(ticket_number, 'ST-', '') AS INTEGER) DESC")
-            ->first();
+        $prefix = Setting::get('ticket_prefix', 'QF');
+        $currentCounter = (int) Setting::get('ticket_counter', '0');
 
-        $nextNumber = $lastTicket
-            ? (int) str_replace('ST-', '', $lastTicket->ticket_number) + 1
-            : 1;
-
-        return 'ST-' . $nextNumber;
+        return $prefix . '-' . ($currentCounter + 1);
     }
 }

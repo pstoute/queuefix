@@ -14,7 +14,7 @@ test('settings page renders', function () {
     get(route('settings.general.index'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->component('Settings/General/Index')
+            ->component('Settings/General')
         );
 });
 
@@ -22,12 +22,19 @@ test('updating settings', function () {
     actingAs($this->admin);
 
     put(route('settings.general.update'), [
-        'company_name' => 'Acme Corporation',
-        'support_email' => 'support@acme.com',
+        'app_name' => 'Acme Corporation',
+        'app_url' => 'https://acme.example.com',
         'timezone' => 'America/New_York',
+        'default_language' => 'en',
+        'ticket_prefix' => 'QF',
     ])
         ->assertRedirect()
         ->assertSessionHas('success');
+
+    $this->assertDatabaseHas('settings', [
+        'key' => 'app_name',
+        'value' => 'Acme Corporation',
+    ]);
 });
 
 test('unauthenticated users cannot access settings', function () {

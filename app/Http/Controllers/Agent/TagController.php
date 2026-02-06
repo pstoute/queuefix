@@ -8,43 +8,50 @@ use App\Models\Ticket;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class TagController extends Controller
 {
-    public function index(Request $request): JsonResponse
+    public function index(Request $request): Response|JsonResponse
     {
         $tags = Tag::query()
             ->when($request->filled('search'), function ($q) use ($request) {
-                $q->where('name', 'ilike', '%' . $request->search . '%');
+                $q->whereRaw('LOWER(name) LIKE ?', ['%' . strtolower($request->search) . '%']);
             })
             ->orderBy('name')
             ->get();
 
-        return response()->json($tags);
+        if ($request->wantsJson()) {
+            return response()->json($tags);
+        }
+
+        return Inertia::render('Agent/Tags/Index', [
+            'tags' => $tags,
+        ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
             'name' => 'required|string|max:50|unique:tags,name',
             'color' => 'required|string|regex:/^#[0-9A-Fa-f]{6}$/',
         ]);
 
-        $tag = Tag::create($validated);
+        Tag::create($validated);
 
-        return response()->json($tag, 201);
+        return back()->with('success', 'Tag created.');
     }
 
     public function attachToTicket(Request $request, Ticket $ticket): RedirectResponse
     {
         $validated = $request->validate([
-            'tag_ids' => 'required|array',
-            'tag_ids.*' => 'exists:tags,id',
+            'tag_id' => 'required|exists:tags,id',
         ]);
 
-        $ticket->tags()->syncWithoutDetaching($validated['tag_ids']);
+        $ticket->tags()->syncWithoutDetaching([$validated['tag_id']]);
 
-        return back()->with('success', 'Tags updated.');
+        return back()->with('success', 'Tag added.');
     }
 
     public function detachFromTicket(Ticket $ticket, Tag $tag): RedirectResponse

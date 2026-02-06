@@ -1,8 +1,8 @@
-# Simple Tickets
+# QueueFix
 
-A modern, open-source support ticketing system with a powerful email importer. Built with Laravel 12, React 19, and PostgreSQL.
+A modern, open-source support ticketing system with a powerful email importer. Built with Laravel 12, React 19, and PostgreSQL (MySQL also supported).
 
-Simple Tickets does **one thing well: support tickets.** No bloat, no unnecessary features — just a clean, fast ticketing system that your team will actually enjoy using.
+QueueFix does **one thing well: support tickets.** No bloat, no unnecessary features — just a clean, fast ticketing system that your team will actually enjoy using.
 
 ## Features
 
@@ -18,7 +18,7 @@ Simple Tickets does **one thing well: support tickets.** No bloat, no unnecessar
 ## Requirements
 
 - PHP 8.3+
-- PostgreSQL 16+
+- PostgreSQL 16+ **or** MySQL 8.0+
 - Node.js 22+
 - Composer
 - pnpm
@@ -26,14 +26,14 @@ Simple Tickets does **one thing well: support tickets.** No bloat, no unnecessar
 ## Quick Start with Docker
 
 ```bash
-git clone https://github.com/yourusername/simpletickets.git
-cd simpletickets
+git clone https://github.com/yourusername/queuefix.git
+cd queuefix
 cp .env.example .env
 docker-compose up -d
 docker-compose exec app composer install
 docker-compose exec app php artisan key:generate
 docker-compose exec app php artisan migrate --seed
-docker-compose exec app pnpm install && pnpm build
+docker-compose exec app sh -c "pnpm install && pnpm build"
 ```
 
 Then open http://localhost:8000.
@@ -44,8 +44,8 @@ Then open http://localhost:8000.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/simpletickets.git
-cd simpletickets
+git clone https://github.com/yourusername/queuefix.git
+cd queuefix
 
 # Install PHP dependencies
 composer install
@@ -58,10 +58,19 @@ cp .env.example .env
 php artisan key:generate
 
 # Edit .env with your database credentials
+# PostgreSQL (default):
 # DB_CONNECTION=pgsql
 # DB_HOST=127.0.0.1
 # DB_PORT=5432
-# DB_DATABASE=simpletickets
+# DB_DATABASE=queuefix
+# DB_USERNAME=your_user
+# DB_PASSWORD=your_password
+#
+# MySQL (alternative):
+# DB_CONNECTION=mysql
+# DB_HOST=127.0.0.1
+# DB_PORT=3306
+# DB_DATABASE=queuefix
 # DB_USERNAME=your_user
 # DB_PASSWORD=your_password
 
@@ -105,7 +114,7 @@ php artisan schedule:work
    GOOGLE_GMAIL_CLIENT_ID=your_client_id
    GOOGLE_GMAIL_CLIENT_SECRET=your_client_secret
    ```
-8. In Simple Tickets, go to **Settings > Mailboxes > Add Mailbox** and select **Gmail**
+8. In QueueFix, go to **Settings > Mailboxes > Add Mailbox** and select **Gmail**
 
 ### Microsoft Office 365 (Graph API)
 
@@ -123,7 +132,7 @@ php artisan schedule:work
    MICROSOFT_GRAPH_CLIENT_SECRET=your_client_secret
    MICROSOFT_GRAPH_TENANT_ID=your_tenant_id
    ```
-7. In Simple Tickets, go to **Settings > Mailboxes > Add Mailbox** and select **Microsoft**
+7. In QueueFix, go to **Settings > Mailboxes > Add Mailbox** and select **Microsoft**
 
 ### AWS WorkMail
 
@@ -159,10 +168,10 @@ AWS WorkMail supports standard IMAP/SMTP. Use the **Generic IMAP** option with:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DB_CONNECTION` | Database driver | `pgsql` |
+| `DB_CONNECTION` | Database driver (`pgsql` or `mysql`) | `pgsql` |
 | `DB_HOST` | Database host | `127.0.0.1` |
-| `DB_PORT` | Database port | `5432` |
-| `DB_DATABASE` | Database name | `simpletickets` |
+| `DB_PORT` | Database port (`5432` for PG, `3306` for MySQL) | `5432` |
+| `DB_DATABASE` | Database name | `queuefix` |
 | `QUEUE_CONNECTION` | Queue driver | `database` |
 | `MAIL_MAILER` | Mail driver | `smtp` |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID | — |
@@ -197,7 +206,7 @@ vendor/bin/phpstan analyse
 - **Backend:** Laravel 12, PHP 8.3+
 - **Frontend:** React 19, TypeScript, Inertia.js
 - **UI:** Tailwind CSS 4, shadcn/ui, Lucide icons
-- **Database:** PostgreSQL 16+
+- **Database:** PostgreSQL 16+ or MySQL 8.0+
 - **Queue:** Laravel Queue (database driver)
 - **Search:** Laravel Scout (database driver)
 - **Testing:** Pest PHP, Vitest
@@ -208,4 +217,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
-Simple Tickets is open-source software licensed under the [MIT License](LICENSE).
+QueueFix is open-source software licensed under the [MIT License](LICENSE).

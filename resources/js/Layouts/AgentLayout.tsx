@@ -116,9 +116,9 @@ export default function AgentLayout({ children }: PropsWithChildren) {
           <div className="flex h-16 items-center justify-between px-6">
             <Link href="/agent/dashboard" className="flex items-center space-x-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-semibold">
-                ST
+                QF
               </div>
-              <span className="text-lg font-semibold">SimpleTickets</span>
+              <span className="text-lg font-semibold">QueueFix</span>
             </Link>
             <Button
               variant="ghost"
@@ -221,9 +221,9 @@ export default function AgentLayout({ children }: PropsWithChildren) {
             <Menu className="h-5 w-5" />
           </Button>
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-semibold">
-            ST
+            QF
           </div>
-          <span className="text-lg font-semibold">SimpleTickets</span>
+          <span className="text-lg font-semibold">QueueFix</span>
         </header>
 
         {/* Page content */}

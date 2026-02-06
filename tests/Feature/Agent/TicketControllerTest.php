@@ -5,12 +5,15 @@ use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Enums\UserRole;
 use App\Models\Customer;
+use App\Models\Setting;
 use App\Models\Tag;
 use App\Models\Ticket;
 use App\Models\User;
 use function Pest\Laravel\{actingAs, get, post, patch};
 
 beforeEach(function () {
+    Setting::set('ticket_prefix', 'QF', 'general');
+    Setting::set('ticket_counter', '0', 'system');
     $this->user = User::factory()->create();
 });
 
@@ -114,10 +117,10 @@ test('ticket list search by subject', function () {
 test('ticket list search by ticket number', function () {
     actingAs($this->user);
 
-    $ticket1 = Ticket::factory()->create(['ticket_number' => 'ST-1']);
-    $ticket2 = Ticket::factory()->create(['ticket_number' => 'ST-2']);
+    $ticket1 = Ticket::factory()->create(['ticket_number' => 'QF-1']);
+    $ticket2 = Ticket::factory()->create(['ticket_number' => 'QF-2']);
 
-    get(route('agent.tickets.index', ['search' => 'ST-1']))
+    get(route('agent.tickets.index', ['search' => 'QF-1']))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->has('tickets.data', 1)

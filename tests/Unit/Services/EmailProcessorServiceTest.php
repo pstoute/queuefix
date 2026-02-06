@@ -5,11 +5,14 @@ use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\Message;
+use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Email\EmailProcessorService;
 use App\Services\TicketService;
 
 beforeEach(function () {
+    Setting::set('ticket_prefix', 'QF', 'general');
+    Setting::set('ticket_counter', '0', 'system');
     $this->ticketService = app(TicketService::class);
     $this->emailProcessor = new EmailProcessorService($this->ticketService);
 });
@@ -143,12 +146,12 @@ test('matching existing ticket by subject line pattern', function () {
     $customer = Customer::factory()->create();
     $ticket = Ticket::factory()->create([
         'customer_id' => $customer->id,
-        'ticket_number' => 'ST-123',
+        'ticket_number' => 'QF-123',
     ]);
 
     $emailData = [
         'from_email' => $customer->email,
-        'subject' => 'Re: [ST-123] Original subject',
+        'subject' => 'Re: [QF-123] Original subject',
         'body_text' => 'This is a reply',
     ];
 
@@ -162,12 +165,12 @@ test('matching existing ticket by subject line pattern with different format', f
     $customer = Customer::factory()->create();
     $ticket = Ticket::factory()->create([
         'customer_id' => $customer->id,
-        'ticket_number' => 'ST-456',
+        'ticket_number' => 'QF-456',
     ]);
 
     $emailData = [
         'from_email' => $customer->email,
-        'subject' => 'Question about [ST-456]',
+        'subject' => 'Question about [QF-456]',
         'body_text' => 'This is a reply',
     ];
 
@@ -315,13 +318,13 @@ test('email with only html body creates ticket', function () {
 
 test('build outbound headers includes ticket number in subject', function () {
     $ticket = Ticket::factory()->create([
-        'ticket_number' => 'ST-100',
+        'ticket_number' => 'QF-100',
         'subject' => 'Original Subject',
     ]);
 
     $headers = $this->emailProcessor->buildOutboundHeaders($ticket);
 
-    expect($headers['Subject'])->toBe('[ST-100] Original Subject');
+    expect($headers['Subject'])->toBe('[QF-100] Original Subject');
 });
 
 test('build outbound headers includes In-Reply-To when last message exists', function () {

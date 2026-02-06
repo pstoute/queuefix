@@ -6,6 +6,7 @@ use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\Message;
+use App\Models\Setting;
 use App\Models\Tag;
 use App\Models\Ticket;
 use App\Models\User;
@@ -13,6 +14,8 @@ use App\Services\SlaService;
 use App\Services\TicketService;
 
 beforeEach(function () {
+    Setting::set('ticket_prefix', 'QF', 'general');
+    Setting::set('ticket_counter', '0', 'system');
     $this->slaService = Mockery::mock(SlaService::class);
     $this->ticketService = new TicketService($this->slaService);
 });
@@ -27,7 +30,7 @@ test('creating a ticket generates ticket number', function () {
         'priority' => TicketPriority::Normal,
     ], $customer);
 
-    expect($ticket->ticket_number)->toStartWith('ST-');
+    expect($ticket->ticket_number)->toStartWith('QF-');
     expect($ticket->subject)->toBe('Test ticket');
     expect($ticket->status)->toBe(TicketStatus::Open);
     expect($ticket->priority)->toBe(TicketPriority::Normal);
@@ -53,9 +56,9 @@ test('ticket number is sequential', function () {
         'body' => 'Body 3',
     ], $customer);
 
-    expect($ticket1->ticket_number)->toBe('ST-1');
-    expect($ticket2->ticket_number)->toBe('ST-2');
-    expect($ticket3->ticket_number)->toBe('ST-3');
+    expect($ticket1->ticket_number)->toBe('QF-1');
+    expect($ticket2->ticket_number)->toBe('QF-2');
+    expect($ticket3->ticket_number)->toBe('QF-3');
 });
 
 test('creating ticket with mailbox assigns mailbox id', function () {
@@ -310,18 +313,25 @@ test('merging tickets syncs tags without duplicates', function () {
     expect($primaryTicket->tags->pluck('id')->toArray())->toContain($tag1->id, $tag2->id, $tag3->id);
 });
 
-test('get next ticket number returns sequential number', function () {
-    Ticket::factory()->create(['ticket_number' => 'ST-5']);
-    Ticket::factory()->create(['ticket_number' => 'ST-10']);
-    Ticket::factory()->create(['ticket_number' => 'ST-7']);
+test('get next ticket number returns counter plus one', function () {
+    Setting::set('ticket_counter', '10', 'system');
 
     $nextNumber = $this->ticketService->getNextTicketNumber();
 
-    expect($nextNumber)->toBe('ST-11');
+    expect($nextNumber)->toBe('QF-11');
 });
 
-test('get next ticket number returns ST-1 when no tickets exist', function () {
+test('get next ticket number returns QF-1 when counter is zero', function () {
     $nextNumber = $this->ticketService->getNextTicketNumber();
 
-    expect($nextNumber)->toBe('ST-1');
+    expect($nextNumber)->toBe('QF-1');
+});
+
+test('get next ticket number uses configured prefix', function () {
+    Setting::set('ticket_prefix', 'TK', 'general');
+    Setting::set('ticket_counter', '5', 'system');
+
+    $nextNumber = $this->ticketService->getNextTicketNumber();
+
+    expect($nextNumber)->toBe('TK-6');
 });

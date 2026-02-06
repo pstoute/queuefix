@@ -19,7 +19,7 @@ interface CustomerLayoutProps extends PropsWithChildren {
 
 export default function CustomerLayout({ customer, children }: CustomerLayoutProps) {
     const { props } = usePage<{ appName: string }>();
-    const appName = props.appName || 'SimpleTickets';
+    const appName = props.appName || 'QueueFix';
 
     const handleLogout = () => {
         router.post(route('customer.logout'));

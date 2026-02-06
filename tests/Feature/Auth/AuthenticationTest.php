@@ -90,7 +90,7 @@ test('magic link verification with valid signature', function () {
     );
 
     get($verifyUrl)
-        ->assertRedirect(route('agent.dashboard'));
+        ->assertRedirect(route('agent.tickets.index'));
 
     $this->assertAuthenticatedAs($user);
 });

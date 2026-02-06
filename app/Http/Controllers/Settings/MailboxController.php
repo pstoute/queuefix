@@ -71,9 +71,7 @@ class MailboxController extends Controller
         $mailbox->outgoing_settings = $validated['outgoing_settings'] ?? [];
         $mailbox->is_active = true;
 
-        if (! empty($validated['credentials'])) {
-            $mailbox->credentials = $validated['credentials'];
-        }
+        $mailbox->credentials = $validated['credentials'] ?? [];
 
         $mailbox->save();
 

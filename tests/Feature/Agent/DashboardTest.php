@@ -1,11 +1,14 @@
 <?php
 
 use App\Enums\TicketStatus;
+use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
 use function Pest\Laravel\{actingAs, get};
 
 beforeEach(function () {
+    Setting::set('ticket_prefix', 'QF', 'general');
+    Setting::set('ticket_counter', '0', 'system');
     $this->user = User::factory()->create();
 });
 

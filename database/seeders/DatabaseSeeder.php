@@ -291,10 +291,14 @@ class DatabaseSeeder extends Seeder
         }
 
         // Create default settings
-        Setting::create(['key' => 'app_name', 'value' => 'Simple Tickets', 'group' => 'general']);
+        Setting::create(['key' => 'app_name', 'value' => 'QueueFix', 'group' => 'general']);
         Setting::create(['key' => 'app_url', 'value' => 'http://localhost:8000', 'group' => 'general']);
         Setting::create(['key' => 'timezone', 'value' => 'UTC', 'group' => 'general']);
         Setting::create(['key' => 'default_language', 'value' => 'en', 'group' => 'general']);
+        Setting::create(['key' => 'ticket_prefix', 'value' => 'QF', 'group' => 'general']);
         Setting::create(['key' => 'accent_color', 'value' => '#6366f1', 'group' => 'appearance']);
+
+        // Ticket counter tracks the last assigned ticket number for atomic generation
+        Setting::create(['key' => 'ticket_counter', 'value' => '8', 'group' => 'system']);
     }
 }

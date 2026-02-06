@@ -32,8 +32,8 @@ class SlaPolicy extends Model
     protected function casts(): array
     {
         return [
-            'first_response_hours' => 'decimal:2',
-            'resolution_hours' => 'decimal:2',
+            'first_response_hours' => 'float',
+            'resolution_hours' => 'float',
             'is_active' => 'boolean',
         ];
     }

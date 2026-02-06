@@ -1,14 +1,20 @@
 <?php
 
 use App\Models\Customer;
+use App\Models\Setting;
 use App\Models\Ticket;
 use Illuminate\Support\Facades\URL;
 use function Pest\Laravel\{actingAs, get, post};
 
+beforeEach(function () {
+    Setting::set('ticket_prefix', 'QF', 'general');
+    Setting::set('ticket_counter', '0', 'system');
+});
+
 test('customer login page renders', function () {
     get(route('customer.login'))
         ->assertOk()
-        ->assertInertia(fn ($page) => $page->component('Customer/Login'));
+        ->assertInertia(fn ($page) => $page->component('Customer/Auth/Login'));
 });
 
 test('customer can request magic link', function () {

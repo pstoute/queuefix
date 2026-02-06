@@ -16,7 +16,7 @@ test('listing canned responses', function () {
     get(route('agent.canned-responses.index'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->component('Agent/CannedResponses/Index')
+            ->component('Settings/CannedResponses/Index')
             ->has('cannedResponses', 5)
         );
 });

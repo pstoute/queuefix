@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\DB;
 
 class Ticket extends Model
 {
@@ -38,6 +39,8 @@ class Ticket extends Model
     protected function casts(): array
     {
         return [
+            'status' => \App\Enums\TicketStatus::class,
+            'priority' => \App\Enums\TicketPriority::class,
             'last_activity_at' => 'datetime',
         ];
     }
@@ -60,14 +63,36 @@ class Ticket extends Model
     }
 
     /**
-     * Generate a unique ticket number.
+     * Generate a unique ticket number using an atomic counter.
      */
     protected static function generateTicketNumber(): string
     {
-        $lastTicket = static::orderBy('created_at', 'desc')->first();
-        $nextNumber = $lastTicket ? (int) str_replace('ST-', '', $lastTicket->ticket_number) + 1 : 1;
+        $prefix = Setting::get('ticket_prefix', 'QF');
 
-        return 'ST-' . $nextNumber;
+        $nextNumber = DB::transaction(function () {
+            $counter = Setting::where('key', 'ticket_counter')->lockForUpdate()->first();
+
+            if ($counter) {
+                $next = (int) $counter->value + 1;
+                $counter->update(['value' => (string) $next]);
+
+                return $next;
+            }
+
+            // Fallback: if ticket_counter doesn't exist, derive from existing tickets
+            $maxNumber = 0;
+            static::pluck('ticket_number')->each(function ($number) use (&$maxNumber) {
+                if (preg_match('/-(\d+)$/', $number, $matches)) {
+                    $maxNumber = max($maxNumber, (int) $matches[1]);
+                }
+            });
+            $next = $maxNumber + 1;
+            Setting::create(['key' => 'ticket_counter', 'value' => (string) $next, 'group' => 'system']);
+
+            return $next;
+        });
+
+        return $prefix . '-' . $nextNumber;
     }
 
     /**

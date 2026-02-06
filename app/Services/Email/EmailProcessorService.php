@@ -6,6 +6,7 @@ use App\Models\Attachment;
 use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\Message;
+use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\TicketService;
 use App\Enums\MessageType;
@@ -63,8 +64,10 @@ class EmailProcessorService
             }
         }
 
-        if (preg_match('/\[ST-(\d+)\]/', $emailData['subject'] ?? '', $matches)) {
-            $ticket = Ticket::where('ticket_number', 'ST-' . $matches[1])->first();
+        $prefix = Setting::get('ticket_prefix', 'QF');
+        $escapedPrefix = preg_quote($prefix, '/');
+        if (preg_match('/\[' . $escapedPrefix . '-(\d+)\]/', $emailData['subject'] ?? '', $matches)) {
+            $ticket = Ticket::where('ticket_number', $prefix . '-' . $matches[1])->first();
             if ($ticket) {
                 return $ticket;
             }
@@ -83,10 +86,15 @@ class EmailProcessorService
         $message = $ticket->messages()->first();
 
         if ($message) {
+            $refs = $emailData['references'] ?? null;
+            if (is_array($refs)) {
+                $refs = implode(' ', $refs);
+            }
+
             $message->update([
                 'message_id' => $emailData['message_id'] ?? null,
                 'in_reply_to' => $emailData['in_reply_to'] ?? null,
-                'references' => $emailData['references'] ?? null,
+                'references' => $refs,
             ]);
 
             $this->processAttachments($message, $emailData['attachments'] ?? []);
@@ -101,6 +109,11 @@ class EmailProcessorService
             $this->ticketService->updateStatus($ticket, TicketStatus::Open);
         }
 
+        $refs = $emailData['references'] ?? null;
+        if (is_array($refs)) {
+            $refs = implode(' ', $refs);
+        }
+
         $message = $this->ticketService->addMessage($ticket, [
             'type' => MessageType::Reply,
             'body_text' => $emailData['body_text'] ?? null,
@@ -109,7 +122,7 @@ class EmailProcessorService
             'sender_id' => $customer->id,
             'message_id' => $emailData['message_id'] ?? null,
             'in_reply_to' => $emailData['in_reply_to'] ?? null,
-            'references' => $emailData['references'] ?? null,
+            'references' => $refs,
         ]);
 
         $this->processAttachments($message, $emailData['attachments'] ?? []);

@@ -2,12 +2,15 @@
 
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
+use App\Models\Setting;
 use App\Models\SlaPolicy;
 use App\Models\SlaTimer;
 use App\Models\Ticket;
 use App\Services\SlaService;
 
 beforeEach(function () {
+    Setting::set('ticket_prefix', 'QF', 'general');
+    Setting::set('ticket_counter', '0', 'system');
     $this->slaService = new SlaService();
 });
 

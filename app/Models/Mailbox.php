@@ -37,7 +37,7 @@ class Mailbox extends Model
     protected function casts(): array
     {
         return [
-            'credentials' => 'encrypted',
+            'credentials' => 'encrypted:array',
             'incoming_settings' => 'json',
             'outgoing_settings' => 'json',
             'is_active' => 'boolean',

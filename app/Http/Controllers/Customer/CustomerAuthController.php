@@ -24,19 +24,20 @@ class CustomerAuthController extends Controller
     {
         $request->validate(['email' => 'required|email']);
 
-        $customer = Customer::where('email', $request->email)->first();
+        $customer = Customer::firstOrCreate(
+            ['email' => strtolower($request->email)],
+            ['name' => explode('@', $request->email)[0]]
+        );
 
-        if ($customer) {
-            $url = URL::temporarySignedRoute(
-                'customer.auth.verify',
-                now()->addMinutes(15),
-                ['customer' => $customer->id]
-            );
+        $url = URL::temporarySignedRoute(
+            'customer.auth.verify',
+            now()->addMinutes(15),
+            ['customer' => $customer->id]
+        );
 
-            Mail::to($customer->email)->send(new CustomerMagicLinkMail($url, $customer));
-        }
+        Mail::to($customer->email)->send(new CustomerMagicLinkMail($url, $customer));
 
-        return back()->with('status', 'If an account exists with that email, a sign-in link has been sent.');
+        return back()->with('status', 'A sign-in link has been sent to your email.');
     }
 
     public function verify(Request $request, Customer $customer): RedirectResponse

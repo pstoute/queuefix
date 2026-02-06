@@ -1,6 +1,6 @@
-# Simple Tickets Test Suite
+# QueueFix Test Suite
 
-This comprehensive test suite provides coverage for the Simple Tickets application using Pest PHP testing framework with PostgreSQL.
+This comprehensive test suite provides coverage for the QueueFix application using Pest PHP testing framework with PostgreSQL.
 
 ## Test Structure
 
@@ -109,7 +109,7 @@ Unit tests verify individual components in isolation, often using mocking for de
 #### TicketService Tests
 **File:** `/tests/Unit/Services/TicketServiceTest.php`
 
-- Ticket number auto-generation (ST-1, ST-2, etc.)
+- Ticket number auto-generation (QF-1, QF-2, etc.)
 - Sequential ticket numbering
 - Mailbox and assignee assignment
 - Message addition updates last_activity_at
@@ -144,7 +144,7 @@ Unit tests verify individual components in isolation, often using mocking for de
 - Matching existing tickets by:
   - In-Reply-To header
   - References header (string and array)
-  - Subject line pattern [ST-XXX]
+  - Subject line pattern [QF-XXX]
 - Reopening resolved/closed tickets
 - Attachment processing
 - Default subject handling
@@ -294,7 +294,7 @@ $this->assertDatabaseCount('tickets', 5);
 
 ### Pest Expectations
 ```php
-expect($ticket->ticket_number)->toStartWith('ST-');
+expect($ticket->ticket_number)->toStartWith('QF-');
 expect($ticket->tags)->toHaveCount(3);
 expect($timer->paused_at)->toBeNull();
 expect($ticket->status)->toBe(TicketStatus::Open);

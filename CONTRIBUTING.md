@@ -1,6 +1,6 @@
-# Contributing to Simple Tickets
+# Contributing to QueueFix
 
-Thank you for your interest in contributing to Simple Tickets! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to QueueFix! This document provides guidelines and instructions for contributing.
 
 ## Development Setup
 
@@ -18,8 +18,8 @@ Thank you for your interest in contributing to Simple Tickets! This document pro
 1. Fork the repository
 2. Clone your fork:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/simpletickets.git
-   cd simpletickets
+   git clone https://github.com/pstoute/queuefix.git
+   cd queuefix
    ```
 
 3. Install dependencies:

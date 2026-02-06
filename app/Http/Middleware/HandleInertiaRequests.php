@@ -25,7 +25,7 @@ class HandleInertiaRequests extends Middleware
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
             ],
-            'appName' => config('app.name', 'Simple Tickets'),
+            'appName' => config('app.name', 'QueueFix'),
         ];
     }
 }

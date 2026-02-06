@@ -5,16 +5,22 @@ use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\Message;
+use App\Models\Setting;
 use App\Models\SlaTimer;
 use App\Models\Tag;
 use App\Models\Ticket;
 use App\Models\User;
 
+beforeEach(function () {
+    Setting::set('ticket_prefix', 'QF', 'general');
+    Setting::set('ticket_counter', '0', 'system');
+});
+
 test('auto-generation of ticket_number in boot method', function () {
     $ticket = Ticket::factory()->create();
 
     expect($ticket->ticket_number)->not->toBeNull();
-    expect($ticket->ticket_number)->toStartWith('ST-');
+    expect($ticket->ticket_number)->toStartWith('QF-');
 });
 
 test('ticket number is sequential', function () {
@@ -22,9 +28,9 @@ test('ticket number is sequential', function () {
     $ticket2 = Ticket::factory()->create();
     $ticket3 = Ticket::factory()->create();
 
-    expect($ticket1->ticket_number)->toBe('ST-1');
-    expect($ticket2->ticket_number)->toBe('ST-2');
-    expect($ticket3->ticket_number)->toBe('ST-3');
+    expect($ticket1->ticket_number)->toBe('QF-1');
+    expect($ticket2->ticket_number)->toBe('QF-2');
+    expect($ticket3->ticket_number)->toBe('QF-3');
 });
 
 test('ticket can have custom ticket number', function () {
@@ -135,7 +141,7 @@ test('ticket last_activity_at is cast to datetime', function () {
 
 test('ticket has fillable attributes', function () {
     $data = [
-        'ticket_number' => 'ST-999',
+        'ticket_number' => 'QF-999',
         'subject' => 'Test Subject',
         'status' => TicketStatus::Open,
         'priority' => TicketPriority::High,
@@ -147,7 +153,7 @@ test('ticket has fillable attributes', function () {
 
     $ticket = Ticket::create($data);
 
-    expect($ticket->ticket_number)->toBe('ST-999');
+    expect($ticket->ticket_number)->toBe('QF-999');
     expect($ticket->subject)->toBe('Test Subject');
     expect($ticket->status)->toBe(TicketStatus::Open);
     expect($ticket->priority)->toBe(TicketPriority::High);
@@ -183,8 +189,8 @@ test('deleting ticket with messages', function () {
 
     $ticket->delete();
 
-    // Messages should still exist unless cascade delete is set up
-    expect(Message::count())->toBe(3);
+    // Messages are cascade deleted via foreign key constraint
+    expect(Message::count())->toBe(0);
 });
 
 test('ticket can be queried by status', function () {

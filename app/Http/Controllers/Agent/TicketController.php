@@ -44,13 +44,13 @@ class TicketController extends Controller
         }
 
         if ($request->filled('search')) {
-            $search = $request->search;
+            $search = strtolower($request->search);
             $query->where(function ($q) use ($search) {
-                $q->where('subject', 'ilike', "%{$search}%")
-                    ->orWhere('ticket_number', 'ilike', "%{$search}%")
+                $q->whereRaw('LOWER(subject) LIKE ?', ["%{$search}%"])
+                    ->orWhereRaw('LOWER(ticket_number) LIKE ?', ["%{$search}%"])
                     ->orWhereHas('customer', function ($cq) use ($search) {
-                        $cq->where('name', 'ilike', "%{$search}%")
-                            ->orWhere('email', 'ilike', "%{$search}%");
+                        $cq->whereRaw('LOWER(name) LIKE ?', ["%{$search}%"])
+                            ->orWhereRaw('LOWER(email) LIKE ?', ["%{$search}%"]);
                     });
             });
         }
@@ -170,7 +170,11 @@ class TicketController extends Controller
     public function merge(Request $request, Ticket $ticket): RedirectResponse
     {
         $validated = $request->validate([
-            'merge_ticket_id' => 'required|exists:tickets,id|different:ticket',
+            'merge_ticket_id' => ['required', 'exists:tickets,id', function ($attribute, $value, $fail) use ($ticket) {
+                if ($value === $ticket->id) {
+                    $fail('Cannot merge a ticket with itself.');
+                }
+            }],
         ]);
 
         $secondary = Ticket::findOrFail($validated['merge_ticket_id']);

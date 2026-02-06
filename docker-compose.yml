@@ -16,8 +16,8 @@ services:
       - DB_CONNECTION=pgsql
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_DATABASE=simpletickets
-      - DB_USERNAME=simpletickets
+      - DB_DATABASE=queuefix
+      - DB_USERNAME=queuefix
       - DB_PASSWORD=secret
       - REDIS_HOST=redis
       - MAIL_MAILER=smtp
@@ -29,25 +29,48 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - simpletickets
+      - queuefix
 
+  # PostgreSQL (default)
   postgres:
     image: postgres:16-alpine
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: simpletickets
-      POSTGRES_USER: simpletickets
+      POSTGRES_DB: queuefix
+      POSTGRES_USER: queuefix
       POSTGRES_PASSWORD: secret
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U simpletickets"]
+      test: ["CMD-SHELL", "pg_isready -U queuefix"]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - simpletickets
+      - queuefix
+
+  # MySQL 8.0 (alternative — uncomment this block and comment out postgres,
+  # then update the app/queue/scheduler environment to:
+  #   DB_CONNECTION=mysql, DB_HOST=mysql, DB_PORT=3306)
+  # mysql:
+  #   image: mysql:8.0
+  #   ports:
+  #     - "3306:3306"
+  #   environment:
+  #     MYSQL_DATABASE: queuefix
+  #     MYSQL_USER: queuefix
+  #     MYSQL_PASSWORD: secret
+  #     MYSQL_ROOT_PASSWORD: secret
+  #   volumes:
+  #     - mysql_data:/var/lib/mysql
+  #   healthcheck:
+  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 5
+  #   networks:
+  #     - queuefix
 
   redis:
     image: redis:7-alpine
@@ -61,7 +84,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - simpletickets
+      - queuefix
 
   mailpit:
     image: axllent/mailpit
@@ -69,7 +92,7 @@ services:
       - "8025:8025"
       - "1025:1025"
     networks:
-      - simpletickets
+      - queuefix
 
   queue:
     build:
@@ -85,8 +108,8 @@ services:
       - DB_CONNECTION=pgsql
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_DATABASE=simpletickets
-      - DB_USERNAME=simpletickets
+      - DB_DATABASE=queuefix
+      - DB_USERNAME=queuefix
       - DB_PASSWORD=secret
       - REDIS_HOST=redis
     depends_on:
@@ -95,7 +118,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - simpletickets
+      - queuefix
 
   scheduler:
     build:
@@ -111,8 +134,8 @@ services:
       - DB_CONNECTION=pgsql
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_DATABASE=simpletickets
-      - DB_USERNAME=simpletickets
+      - DB_DATABASE=queuefix
+      - DB_USERNAME=queuefix
       - DB_PASSWORD=secret
       - REDIS_HOST=redis
     depends_on:
@@ -121,12 +144,13 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - simpletickets
+      - queuefix
 
 volumes:
   postgres_data:
+  # mysql_data:
   redis_data:
 
 networks:
-  simpletickets:
+  queuefix:
     driver: bridge
