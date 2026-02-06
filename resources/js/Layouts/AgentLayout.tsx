@@ -28,6 +28,7 @@ import {
   LogOut,
   User,
 } from 'lucide-react';
+import DemoBanner from '@/Components/DemoBanner';
 
 interface NavItem {
   name: string;
@@ -43,7 +44,7 @@ const navigation: NavItem[] = [
 ];
 
 export default function AgentLayout({ children }: PropsWithChildren) {
-  const { auth, flash } = usePage<PageProps>().props;
+  const { auth, flash, demo } = usePage<PageProps>().props;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
@@ -95,7 +96,9 @@ export default function AgentLayout({ children }: PropsWithChildren) {
   const ThemeIcon = theme === 'light' ? Sun : theme === 'dark' ? Moon : Monitor;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen flex-col overflow-hidden bg-background">
+      {demo?.enabled && <DemoBanner githubUrl={demo.githubUrl} resetInterval={demo.resetInterval} />}
+      <div className="flex flex-1 overflow-hidden">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div
@@ -232,6 +235,7 @@ export default function AgentLayout({ children }: PropsWithChildren) {
         </main>
       </div>
 
+      </div>
       <Toaster />
     </div>
   );

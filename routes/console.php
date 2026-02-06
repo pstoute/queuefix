@@ -21,3 +21,11 @@ Schedule::call(function () {
 Schedule::call(function () {
     app(SlaService::class)->checkBreaches();
 })->everyMinute()->name('check-sla-breaches');
+
+// Demo mode: auto-reset on a configurable interval
+if (config('demo.enabled')) {
+    Schedule::command('demo:reset')
+        ->everyNMinutes((int) config('demo.reset_interval', 60))
+        ->name('demo-reset')
+        ->withoutOverlapping();
+}

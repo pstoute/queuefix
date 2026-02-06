@@ -142,6 +142,15 @@ export type PageProps<
         error?: string;
     };
     appName: string;
+    demo?: {
+        enabled: boolean;
+        githubUrl: string;
+        resetInterval: number;
+        credentials: {
+            admin: { email: string; password: string };
+            agent: { email: string; password: string };
+        };
+    } | null;
 };
 
 export interface PaginatedData<T> {

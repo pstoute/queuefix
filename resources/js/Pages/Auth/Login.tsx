@@ -1,11 +1,12 @@
 import GuestLayout from '@/Layouts/GuestLayout';
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, Link, useForm, usePage, router } from '@inertiajs/react';
 import { FormEventHandler } from 'react';
+import { PageProps } from '@/types';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { Separator } from '@/Components/ui/separator';
-import { Mail } from 'lucide-react';
+import { Mail, Shield, UserCog } from 'lucide-react';
 
 export default function Login({
     status,
@@ -14,6 +15,7 @@ export default function Login({
     status?: string;
     canResetPassword: boolean;
 }) {
+    const { demo } = usePage<PageProps>().props;
     const { data, setData, post, processing, errors, reset } = useForm({
         email: '',
         password: '',
@@ -25,6 +27,14 @@ export default function Login({
 
         post(route('login'), {
             onFinish: () => reset('password'),
+        });
+    };
+
+    const quickLogin = (creds: { email: string; password: string }) => {
+        router.post(route('login'), {
+            email: creds.email,
+            password: creds.password,
+            remember: false,
         });
     };
 
@@ -50,6 +60,38 @@ export default function Login({
                     </div>
                 )}
 
+                {demo?.enabled && (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3">
+                        <p className="text-sm font-medium text-blue-900">
+                            Demo Mode &mdash; Try QueueFix instantly
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="bg-white"
+                                onClick={() => quickLogin(demo.credentials.admin)}
+                            >
+                                <Shield className="mr-1.5 h-3.5 w-3.5" />
+                                Login as Admin
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="bg-white"
+                                onClick={() => quickLogin(demo.credentials.agent)}
+                            >
+                                <UserCog className="mr-1.5 h-3.5 w-3.5" />
+                                Login as Agent
+                            </Button>
+                        </div>
+                        <div className="text-xs text-blue-700 space-y-0.5">
+                            <p>Admin: {demo.credentials.admin.email} / {demo.credentials.admin.password}</p>
+                            <p>Agent: {demo.credentials.agent.email} / {demo.credentials.agent.password}</p>
+                        </div>
+                    </div>
+                )}
+
                 <form onSubmit={submit} className="space-y-4">
                     <div className="space-y-2">
                         <Label htmlFor="email">Email</Label>
@@ -61,7 +103,7 @@ export default function Login({
                             onChange={(e) => setData('email', e.target.value)}
                             placeholder="name@example.com"
                             autoComplete="username"
-                            autoFocus
+                            autoFocus={!demo?.enabled}
                         />
                         {errors.email && (
                             <p className="text-sm text-destructive">{errors.email}</p>

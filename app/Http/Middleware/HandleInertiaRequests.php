@@ -26,6 +26,15 @@ class HandleInertiaRequests extends Middleware
                 'error' => fn () => $request->session()->get('error'),
             ],
             'appName' => config('app.name', 'QueueFix'),
+            'demo' => config('demo.enabled') ? [
+                'enabled' => true,
+                'githubUrl' => config('demo.github_url'),
+                'resetInterval' => config('demo.reset_interval'),
+                'credentials' => [
+                    'admin' => ['email' => 'admin@example.com', 'password' => 'password'],
+                    'agent' => ['email' => 'sarah@example.com', 'password' => 'password'],
+                ],
+            ] : null,
         ];
     }
 }
