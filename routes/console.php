@@ -24,8 +24,9 @@ Schedule::call(function () {
 
 // Demo mode: auto-reset on a configurable interval
 if (config('demo.enabled')) {
+    $interval = (int) config('demo.reset_interval', 60);
     Schedule::command('demo:reset')
-        ->everyNMinutes((int) config('demo.reset_interval', 60))
+        ->cron("*/{$interval} * * * *")
         ->name('demo-reset')
         ->withoutOverlapping();
 }
