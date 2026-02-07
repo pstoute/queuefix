@@ -155,18 +155,16 @@ export type PageProps<
 
 export interface PaginatedData<T> {
     data: T[];
-    links: {
-        first: string;
-        last: string;
-        prev?: string;
-        next?: string;
-    };
-    meta: {
-        current_page: number;
-        from: number;
-        last_page: number;
-        per_page: number;
-        to: number;
-        total: number;
-    };
+    current_page: number;
+    from: number;
+    last_page: number;
+    per_page: number;
+    to: number;
+    total: number;
+    first_page_url: string;
+    last_page_url: string;
+    prev_page_url: string | null;
+    next_page_url: string | null;
+    path: string;
+    links: { url: string | null; label: string; active: boolean }[];
 }

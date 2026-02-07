@@ -155,6 +155,17 @@ class TicketController extends Controller
         return back()->with('success', 'Status updated.');
     }
 
+    public function updatePriority(Request $request, Ticket $ticket): RedirectResponse
+    {
+        $validated = $request->validate([
+            'priority' => 'required|string|in:' . implode(',', array_column(TicketPriority::cases(), 'value')),
+        ]);
+
+        $ticket->update(['priority' => TicketPriority::from($validated['priority'])]);
+
+        return back()->with('success', 'Priority updated.');
+    }
+
     public function assign(Request $request, Ticket $ticket): RedirectResponse
     {
         $validated = $request->validate([

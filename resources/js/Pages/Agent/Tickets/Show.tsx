@@ -75,7 +75,7 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    post(`/agent/tickets/${ticket.id}/messages`, {
+    post(`/agent/tickets/${ticket.id}/reply`, {
       preserveScroll: true,
       onSuccess: () => {
         reset();
@@ -85,15 +85,15 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
   };
 
   const handleStatusChange = (status: TicketStatus) => {
-    router.patch(`/agent/tickets/${ticket.id}`, { status }, { preserveScroll: true });
+    router.patch(`/agent/tickets/${ticket.id}/status`, { status }, { preserveScroll: true });
   };
 
   const handlePriorityChange = (priority: TicketPriority) => {
-    router.patch(`/agent/tickets/${ticket.id}`, { priority }, { preserveScroll: true });
+    router.patch(`/agent/tickets/${ticket.id}/priority`, { priority }, { preserveScroll: true });
   };
 
   const handleAssigneeChange = (assignee: string) => {
-    router.patch(`/agent/tickets/${ticket.id}`, { assigned_to: assignee }, { preserveScroll: true });
+    router.patch(`/agent/tickets/${ticket.id}/assign`, { assigned_to: assignee }, { preserveScroll: true });
   };
 
   const handleAddTag = () => {
@@ -191,8 +191,8 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
           <div className="container max-w-7xl mx-auto p-6 h-full">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
               {/* Left: Message thread */}
-              <div className="lg:col-span-2 flex flex-col">
-                <Card className="flex-1 flex flex-col overflow-hidden">
+              <div className="lg:col-span-2 flex flex-col min-h-0">
+                <Card className="flex-1 flex flex-col overflow-hidden min-h-0">
                   {/* Messages */}
                   <ScrollArea className="flex-1 p-6">
                     <div className="space-y-6">
@@ -344,7 +344,7 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
               </div>
 
               {/* Right: Sidebar */}
-              <div className="space-y-6">
+              <div className="space-y-6 overflow-y-auto">
                 {/* Ticket metadata */}
                 <Card>
                   <CardHeader>

@@ -317,29 +317,29 @@ export default function TicketsIndex({ tickets, filters, agents, counts }: Ticke
                 </Table>
 
                 {/* Pagination */}
-                {tickets.meta.last_page > 1 && (
+                {tickets.last_page > 1 && (
                   <div className="flex items-center justify-between border-t px-6 py-4">
                     <div className="text-sm text-muted-foreground">
-                      Showing {tickets.meta.from} to {tickets.meta.to} of {tickets.meta.total} results
+                      Showing {tickets.from} to {tickets.to} of {tickets.total} results
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handlePageChange(tickets.links.prev || null)}
-                        disabled={!tickets.links.prev}
+                        onClick={() => handlePageChange(tickets.prev_page_url)}
+                        disabled={!tickets.prev_page_url}
                       >
                         <ChevronLeft className="h-4 w-4 mr-1" />
                         Previous
                       </Button>
                       <div className="text-sm text-muted-foreground">
-                        Page {tickets.meta.current_page} of {tickets.meta.last_page}
+                        Page {tickets.current_page} of {tickets.last_page}
                       </div>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handlePageChange(tickets.links.next || null)}
-                        disabled={!tickets.links.next}
+                        onClick={() => handlePageChange(tickets.next_page_url)}
+                        disabled={!tickets.next_page_url}
                       >
                         Next
                         <ChevronRight className="h-4 w-4 ml-1" />

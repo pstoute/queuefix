@@ -132,18 +132,18 @@ export default function CustomerTicketsIndex({ tickets, customer }: CustomerTick
                     </div>
                 )}
 
-                {tickets.meta.last_page > 1 && (
+                {tickets.last_page > 1 && (
                     <div className="flex items-center justify-center gap-2">
-                        {tickets.links.prev && (
-                            <Link href={tickets.links.prev}>
+                        {tickets.prev_page_url && (
+                            <Link href={tickets.prev_page_url}>
                                 <Button variant="outline">Previous</Button>
                             </Link>
                         )}
                         <span className="text-sm text-gray-600">
-                            Page {tickets.meta.current_page} of {tickets.meta.last_page}
+                            Page {tickets.current_page} of {tickets.last_page}
                         </span>
-                        {tickets.links.next && (
-                            <Link href={tickets.links.next}>
+                        {tickets.next_page_url && (
+                            <Link href={tickets.next_page_url}>
                                 <Button variant="outline">Next</Button>
                             </Link>
                         )}

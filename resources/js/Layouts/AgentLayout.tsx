@@ -38,9 +38,9 @@ interface NavItem {
 }
 
 const navigation: NavItem[] = [
-  { name: 'Dashboard', href: '/agent/dashboard', icon: LayoutDashboard, pattern: /^\/agent\/dashboard/ },
+  { name: 'Dashboard', href: '/agent', icon: LayoutDashboard, pattern: /^\/agent$/ },
   { name: 'Tickets', href: '/agent/tickets', icon: Inbox, pattern: /^\/agent\/tickets/ },
-  { name: 'Settings', href: '/agent/settings', icon: Settings, pattern: /^\/agent\/settings/ },
+  { name: 'Settings', href: '/settings/general', icon: Settings, pattern: /^\/settings/ },
 ];
 
 export default function AgentLayout({ children }: PropsWithChildren) {
@@ -117,7 +117,7 @@ export default function AgentLayout({ children }: PropsWithChildren) {
         <div className="flex h-full flex-col">
           {/* Logo and close button */}
           <div className="flex h-16 items-center justify-between px-6">
-            <Link href="/agent/dashboard" className="flex items-center space-x-2">
+            <Link href="/agent" className="flex items-center space-x-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-semibold">
                 QF
               </div>
@@ -200,7 +200,7 @@ export default function AgentLayout({ children }: PropsWithChildren) {
                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/agent/profile" className="cursor-pointer">
+                  <Link href="/profile" className="cursor-pointer">
                     <User className="mr-2 h-4 w-4" />
                     Profile
                   </Link>
