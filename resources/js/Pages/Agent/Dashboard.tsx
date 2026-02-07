@@ -33,6 +33,7 @@ const statCards = [
     icon: Inbox,
     color: 'text-green-600 dark:text-green-400',
     bgColor: 'bg-green-100 dark:bg-green-950',
+    href: '/agent/tickets?status=open',
   },
   {
     key: 'pending',
@@ -40,6 +41,7 @@ const statCards = [
     icon: Clock,
     color: 'text-amber-600 dark:text-amber-400',
     bgColor: 'bg-amber-100 dark:bg-amber-950',
+    href: '/agent/tickets?status=pending',
   },
   {
     key: 'on_hold',
@@ -47,6 +49,7 @@ const statCards = [
     icon: Pause,
     color: 'text-gray-600 dark:text-gray-400',
     bgColor: 'bg-gray-100 dark:bg-gray-800',
+    href: '/agent/tickets?status=on_hold',
   },
   {
     key: 'resolved_today',
@@ -54,6 +57,7 @@ const statCards = [
     icon: CheckCircle,
     color: 'text-blue-600 dark:text-blue-400',
     bgColor: 'bg-blue-100 dark:bg-blue-950',
+    href: '/agent/tickets?status=resolved',
   },
   {
     key: 'unassigned',
@@ -61,6 +65,7 @@ const statCards = [
     icon: UserX,
     color: 'text-purple-600 dark:text-purple-400',
     bgColor: 'bg-purple-100 dark:bg-purple-950',
+    href: '/agent/tickets?assigned_to=unassigned',
   },
   {
     key: 'sla_breached',
@@ -68,6 +73,7 @@ const statCards = [
     icon: AlertTriangle,
     color: 'text-red-600 dark:text-red-400',
     bgColor: 'bg-red-100 dark:bg-red-950',
+    href: '/agent/tickets',
   },
 ];
 
@@ -106,19 +112,21 @@ export default function Dashboard({ stats, recentTickets }: DashboardProps) {
             const Icon = stat.icon;
             const value = stats[stat.key as keyof typeof stats];
             return (
-              <Card key={stat.key}>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    {stat.label}
-                  </CardTitle>
-                  <div className={cn('rounded-full p-2', stat.bgColor)}>
-                    <Icon className={cn('h-4 w-4', stat.color)} />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{value}</div>
-                </CardContent>
-              </Card>
+              <Link key={stat.key} href={stat.href} className="block">
+                <Card className="transition-colors hover:bg-muted/50">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">
+                      {stat.label}
+                    </CardTitle>
+                    <div className={cn('rounded-full p-2', stat.bgColor)}>
+                      <Icon className={cn('h-4 w-4', stat.color)} />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{value}</div>
+                  </CardContent>
+                </Card>
+              </Link>
             );
           })}
         </div>

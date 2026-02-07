@@ -38,6 +38,8 @@ class TicketController extends Controller
         if ($request->filled('assigned_to')) {
             if ($request->assigned_to === 'unassigned') {
                 $query->whereNull('assigned_to');
+            } elseif ($request->assigned_to === 'me') {
+                $query->where('assigned_to', $request->user()->id);
             } else {
                 $query->where('assigned_to', $request->assigned_to);
             }

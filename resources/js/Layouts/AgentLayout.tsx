@@ -1,7 +1,6 @@
 import { useState, useEffect, PropsWithChildren } from 'react';
 import { Link, usePage, router } from '@inertiajs/react';
 import { PageProps } from '@/types';
-import { useTheme } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
 import { Button } from '@/Components/ui/button';
 import {
@@ -19,12 +18,10 @@ import { useToast } from '@/Components/ui/use-toast';
 import {
   LayoutDashboard,
   Inbox,
+  UserCheck,
   Settings,
   Menu,
   X,
-  Sun,
-  Moon,
-  Monitor,
   LogOut,
   User,
 } from 'lucide-react';
@@ -39,14 +36,13 @@ interface NavItem {
 
 const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/agent', icon: LayoutDashboard, pattern: /^\/agent$/ },
-  { name: 'Tickets', href: '/agent/tickets', icon: Inbox, pattern: /^\/agent\/tickets/ },
-  { name: 'Settings', href: '/settings/general', icon: Settings, pattern: /^\/settings/ },
+  { name: 'Tickets', href: '/agent/tickets', icon: Inbox, pattern: /^\/agent\/tickets(?!\?)/ },
+  { name: 'My Tickets', href: '/agent/tickets?assigned_to=me', icon: UserCheck, pattern: /assigned_to=me/ },
 ];
 
 export default function AgentLayout({ children }: PropsWithChildren) {
   const { auth, flash, demo } = usePage<PageProps>().props;
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   const currentPath = usePage().url;
 
@@ -73,6 +69,8 @@ export default function AgentLayout({ children }: PropsWithChildren) {
     return currentPath === item.href;
   };
 
+  const isSettingsActive = /^\/settings/.test(currentPath);
+
   const handleLogout = () => {
     router.post('/logout');
   };
@@ -85,15 +83,6 @@ export default function AgentLayout({ children }: PropsWithChildren) {
       .toUpperCase()
       .slice(0, 2);
   };
-
-  const cycleTheme = () => {
-    const themes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
-    const currentIndex = themes.indexOf(theme);
-    const nextIndex = (currentIndex + 1) % themes.length;
-    setTheme(themes[nextIndex]);
-  };
-
-  const ThemeIcon = theme === 'light' ? Sun : theme === 'dark' ? Moon : Monitor;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
@@ -159,21 +148,21 @@ export default function AgentLayout({ children }: PropsWithChildren) {
             })}
           </nav>
 
-          <Separator />
-
-          {/* Theme toggle */}
-          <div className="px-3 py-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start gap-3"
-              onClick={cycleTheme}
+          {/* Settings link at bottom */}
+          <div className="px-3 pb-2">
+            <Link
+              href="/settings/general"
+              className={cn(
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                isSettingsActive
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              )}
+              onClick={() => setSidebarOpen(false)}
             >
-              <ThemeIcon className="h-5 w-5" />
-              <span className="text-sm">
-                {theme === 'light' ? 'Light' : theme === 'dark' ? 'Dark' : 'System'}
-              </span>
-            </Button>
+              <Settings className="h-5 w-5 shrink-0" />
+              Settings
+            </Link>
           </div>
 
           <Separator />

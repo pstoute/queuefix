@@ -58,7 +58,7 @@ export default function CreateMailbox({ types }: CreateMailboxProps) {
         <AgentLayout>
             <Head title="Add Mailbox" />
 
-            <div className="space-y-6">
+            <div className="container max-w-7xl mx-auto p-6 space-y-6">
                 <div className="flex items-center gap-4">
                     <Link href={route('settings.mailboxes.index')}>
                         <Button variant="ghost" size="icon">

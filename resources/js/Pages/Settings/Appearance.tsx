@@ -55,7 +55,7 @@ export default function Appearance({ settings }: AppearanceSettingsProps) {
         <AgentLayout>
             <Head title="Appearance Settings" />
 
-            <div className="space-y-6">
+            <div className="container max-w-7xl mx-auto p-6 space-y-6">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Appearance Settings</h1>
                     <p className="text-muted-foreground">
