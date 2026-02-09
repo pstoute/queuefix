@@ -1,5 +1,5 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { PageProps, PaginatedData, Ticket, User, TicketStatus, TicketPriority } from '@/types';
+import { PageProps, PaginatedData, Ticket, User, Department, TicketStatus, TicketPriority } from '@/types';
 import AgentLayout from '@/Layouts/AgentLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Button } from '@/Components/ui/button';
@@ -31,9 +31,11 @@ interface TicketsIndexProps extends PageProps {
     status?: string;
     priority?: string;
     assignee?: string;
+    department?: string;
     search?: string;
   };
   agents: User[];
+  departments: Array<{ id: string; name: string }>;
   counts: {
     open: number;
     pending: number;
@@ -56,7 +58,7 @@ const priorityConfig = {
   urgent: { label: 'Urgent', variant: 'destructive' as const },
 };
 
-export default function TicketsIndex({ tickets, filters, agents, counts }: TicketsIndexProps) {
+export default function TicketsIndex({ tickets, filters, agents, departments, counts }: TicketsIndexProps) {
   const [searchQuery, setSearchQuery] = useState(filters.search || '');
 
   const handleFilterChange = (key: string, value: string) => {
@@ -207,6 +209,26 @@ export default function TicketsIndex({ tickets, filters, agents, counts }: Ticke
                   ))}
                 </SelectContent>
               </Select>
+
+              {/* Department filter */}
+              {departments.length > 0 && (
+                <Select
+                  value={filters.department || 'all'}
+                  onValueChange={(value) => handleFilterChange('department', value)}
+                >
+                  <SelectTrigger className="w-full lg:w-[180px]">
+                    <SelectValue placeholder="All Departments" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Departments</SelectItem>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -1,6 +1,6 @@
 import { Head, useForm } from '@inertiajs/react';
 import { FormEventHandler } from 'react';
-import AgentLayout from '@/Layouts/AgentLayout';
+import SettingsLayout from '@/Layouts/SettingsLayout';
 import { PageProps } from '@/types';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
@@ -13,7 +13,6 @@ import {
     SelectValue,
 } from '@/Components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
-import { Separator } from '@/Components/ui/separator';
 
 interface GeneralSettingsProps extends PageProps {
     settings: Record<string, string>;
@@ -54,18 +53,16 @@ export default function General({ settings }: GeneralSettingsProps) {
     };
 
     return (
-        <AgentLayout>
+        <SettingsLayout>
             <Head title="General Settings" />
 
-            <div className="container max-w-7xl mx-auto p-6 space-y-6">
+            <div className="space-y-6">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">General Settings</h1>
                     <p className="text-muted-foreground">
                         Configure basic application settings
                     </p>
                 </div>
-
-                <Separator />
 
                 <Card>
                     <CardHeader>
@@ -173,6 +170,6 @@ export default function General({ settings }: GeneralSettingsProps) {
                     </CardContent>
                 </Card>
             </div>
-        </AgentLayout>
+        </SettingsLayout>
     );
 }

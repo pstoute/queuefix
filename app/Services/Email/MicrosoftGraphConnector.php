@@ -91,7 +91,7 @@ class MicrosoftGraphConnector
                     '$filter' => $filter,
                     '$top' => 50,
                     '$orderby' => 'receivedDateTime desc',
-                    '$select' => 'id,subject,from,body,receivedDateTime,internetMessageHeaders,hasAttachments,internetMessageId',
+                    '$select' => 'id,subject,from,toRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments,internetMessageId',
                 ]);
 
             if (! $response->successful()) {
@@ -145,6 +145,7 @@ class MicrosoftGraphConnector
         return [
             'from_email' => strtolower($msg['from']['emailAddress']['address'] ?? ''),
             'from_name' => $msg['from']['emailAddress']['name'] ?? null,
+            'to_email' => strtolower($msg['toRecipients'][0]['emailAddress']['address'] ?? ''),
             'subject' => $msg['subject'] ?? null,
             'body_text' => strip_tags($msg['body']['content'] ?? ''),
             'body_html' => ($msg['body']['contentType'] ?? '') === 'html' ? ($msg['body']['content'] ?? null) : null,

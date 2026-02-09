@@ -9,7 +9,9 @@ use App\Enums\TicketStatus;
 use App\Enums\UserRole;
 use App\Models\CannedResponse;
 use App\Models\Customer;
+use App\Models\Department;
 use App\Models\Mailbox;
+use App\Models\MailboxAlias;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\SlaPolicy;
@@ -73,8 +75,13 @@ class DatabaseSeeder extends Seeder
             Tag::create(['name' => 'Documentation', 'color' => '#6366f1']),
         ]);
 
-        // Create a demo mailbox
-        Mailbox::create([
+        // Create departments
+        $supportDept = Department::create(['name' => 'Support', 'description' => 'General support inquiries']);
+        $billingDept = Department::create(['name' => 'Billing', 'description' => 'Billing and payment inquiries']);
+        $technicalDept = Department::create(['name' => 'Technical', 'description' => 'Technical support and engineering']);
+
+        // Create a demo mailbox with default department
+        $mailbox = Mailbox::create([
             'name' => 'Support',
             'email' => 'support@example.com',
             'type' => MailboxType::Imap,
@@ -92,10 +99,14 @@ class DatabaseSeeder extends Seeder
                 'port' => 587,
                 'encryption' => 'tls',
             ],
-            'department' => 'Support',
+            'department_id' => $supportDept->id,
             'polling_interval' => 2,
             'is_active' => true,
         ]);
+
+        // Create mailbox aliases for department routing
+        MailboxAlias::create(['mailbox_id' => $mailbox->id, 'email' => 'billing@example.com', 'department_id' => $billingDept->id]);
+        MailboxAlias::create(['mailbox_id' => $mailbox->id, 'email' => 'tech@example.com', 'department_id' => $technicalDept->id]);
 
         // Create SLA policies
         SlaPolicy::create([
@@ -268,12 +279,20 @@ class DatabaseSeeder extends Seeder
         ];
 
         foreach ($ticketData as $index => $data) {
+            // Assign departments to tickets based on content
+            $deptId = match (true) {
+                str_contains(strtolower($data['subject']), 'billing') || str_contains(strtolower($data['subject']), 'invoice') || str_contains(strtolower($data['subject']), 'downgrade') => $billingDept->id,
+                str_contains(strtolower($data['subject']), 'api') || str_contains(strtolower($data['subject']), 'export') || str_contains(strtolower($data['subject']), 'webhook') => $technicalDept->id,
+                default => $supportDept->id,
+            };
+
             $ticket = Ticket::create([
                 'subject' => $data['subject'],
                 'status' => $data['status'],
                 'priority' => $data['priority'],
                 'customer_id' => $data['customer']->id,
                 'assigned_to' => $data['assignee']?->id,
+                'department_id' => $deptId,
                 'last_activity_at' => now()->subHours(rand(0, 72)),
             ]);
 

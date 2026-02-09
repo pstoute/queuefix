@@ -1,6 +1,6 @@
 import { Head, useForm, router } from '@inertiajs/react';
 import { FormEventHandler, useState } from 'react';
-import AgentLayout from '@/Layouts/AgentLayout';
+import SettingsLayout from '@/Layouts/SettingsLayout';
 import { PageProps, SlaPolicy, TicketPriority } from '@/types';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
@@ -31,7 +31,6 @@ import {
 } from '@/Components/ui/dropdown-menu';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Badge } from '@/Components/ui/badge';
-import { Separator } from '@/Components/ui/separator';
 import { Switch } from '@/Components/ui/switch';
 import { Plus, MoreVertical, Clock, AlertCircle } from 'lucide-react';
 
@@ -117,10 +116,10 @@ export default function SlaIndex({ policies, priorities }: SlaIndexProps) {
     }));
 
     return (
-        <AgentLayout>
+        <SettingsLayout>
             <Head title="SLA Policies" />
 
-            <div className="container max-w-7xl mx-auto p-6 space-y-6">
+            <div className="space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">SLA Policies</h1>
@@ -261,8 +260,6 @@ export default function SlaIndex({ policies, priorities }: SlaIndexProps) {
                     </Dialog>
                 </div>
 
-                <Separator />
-
                 <div className="space-y-6">
                     {groupedPolicies.map((group) => (
                         <Card key={group.priority}>
@@ -361,6 +358,6 @@ export default function SlaIndex({ policies, priorities }: SlaIndexProps) {
                     ))}
                 </div>
             </div>
-        </AgentLayout>
+        </SettingsLayout>
     );
 }

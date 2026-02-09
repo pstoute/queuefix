@@ -31,7 +31,6 @@ test('creating a mailbox', function () {
         'name' => 'Support Mailbox',
         'email' => 'support@example.com',
         'type' => MailboxType::Imap->value,
-        'department' => 'Support',
         'polling_interval' => 5,
         'incoming_settings' => [
             'host' => 'imap.example.com',
@@ -55,7 +54,6 @@ test('creating a mailbox', function () {
         'name' => 'Support Mailbox',
         'email' => 'support@example.com',
         'type' => MailboxType::Imap->value,
-        'department' => 'Support',
         'polling_interval' => 5,
     ]);
 });
@@ -68,7 +66,6 @@ test('updating a mailbox', function () {
     put(route('settings.mailboxes.update', $mailbox), [
         'name' => 'Updated Name',
         'email' => $mailbox->email,
-        'department' => 'Updated Department',
         'polling_interval' => 10,
         'is_active' => false,
     ])
@@ -78,7 +75,6 @@ test('updating a mailbox', function () {
     $this->assertDatabaseHas('mailboxes', [
         'id' => $mailbox->id,
         'name' => 'Updated Name',
-        'department' => 'Updated Department',
         'polling_interval' => 10,
         'is_active' => false,
     ]);

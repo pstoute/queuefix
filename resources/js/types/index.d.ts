@@ -27,6 +27,26 @@ export interface Customer {
     updated_at: string;
 }
 
+export interface Department {
+    id: string;
+    name: string;
+    description?: string;
+    is_catch_all: boolean;
+    tickets_count?: number;
+    mailboxes_count?: number;
+    aliases_count?: number;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface MailboxAlias {
+    id: string;
+    mailbox_id: string;
+    email: string;
+    department_id: string;
+    department?: Department;
+}
+
 export interface Ticket {
     id: string;
     ticket_number: string;
@@ -36,11 +56,13 @@ export interface Ticket {
     customer_id: string;
     assigned_to?: string;
     mailbox_id?: string;
+    department_id?: string;
     last_activity_at: string;
     created_at: string;
     updated_at: string;
     customer?: Customer;
     assignee?: User;
+    department?: Department;
     messages?: Message[];
     tags?: Tag[];
     mailbox?: Mailbox;
@@ -76,7 +98,9 @@ export interface Mailbox {
     name: string;
     email: string;
     type: MailboxType;
-    department?: string;
+    department_id?: string;
+    department?: Department;
+    aliases?: MailboxAlias[];
     polling_interval: number;
     is_active: boolean;
     last_checked_at?: string;

@@ -106,6 +106,7 @@ class GmailConnector
         return [
             'from_email' => $this->parseEmailAddress($headers['From'] ?? ''),
             'from_name' => $this->parseEmailName($headers['From'] ?? ''),
+            'to_email' => $this->parseEmailAddress($headers['To'] ?? $headers['Delivered-To'] ?? ''),
             'subject' => $headers['Subject'] ?? null,
             'body_text' => $body['text'] ?? null,
             'body_html' => $body['html'] ?? null,

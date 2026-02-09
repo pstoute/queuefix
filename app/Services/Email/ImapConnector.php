@@ -88,6 +88,10 @@ class ImapConnector
         $fromAddress = $header->from[0]->mailbox . '@' . $header->from[0]->host;
         $fromName = $header->from[0]->personal ?? null;
 
+        $toAddress = isset($header->to[0])
+            ? $header->to[0]->mailbox . '@' . $header->to[0]->host
+            : null;
+
         $body = $this->getBody($emailNumber, $structure);
         $attachments = $this->getAttachments($emailNumber, $structure);
 
@@ -101,6 +105,7 @@ class ImapConnector
         return [
             'from_email' => $fromAddress,
             'from_name' => $fromName ? imap_utf8($fromName) : null,
+            'to_email' => $toAddress,
             'subject' => $header->subject ? imap_utf8($header->subject) : null,
             'body_text' => $body['text'] ?? null,
             'body_html' => $body['html'] ?? null,

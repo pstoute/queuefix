@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Mailbox extends Model
@@ -23,7 +24,7 @@ class Mailbox extends Model
         'credentials',
         'incoming_settings',
         'outgoing_settings',
-        'department',
+        'department_id',
         'polling_interval',
         'is_active',
         'last_checked_at',
@@ -48,6 +49,16 @@ class Mailbox extends Model
     /**
      * Get the tickets associated with this mailbox.
      */
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
+    }
+
+    public function aliases(): HasMany
+    {
+        return $this->hasMany(MailboxAlias::class);
+    }
+
     public function tickets(): HasMany
     {
         return $this->hasMany(Ticket::class);

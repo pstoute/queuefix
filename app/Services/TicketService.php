@@ -19,13 +19,13 @@ class TicketService
         private SlaService $slaService,
     ) {}
 
-    public function createTicket(array $data, Customer $customer, ?string $mailboxId = null): Ticket
+    public function createTicket(array $data, Customer $customer, ?string $mailboxId = null, ?string $departmentId = null): Ticket
     {
         $maxAttempts = 3;
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
-                return DB::transaction(function () use ($data, $customer, $mailboxId) {
+                return DB::transaction(function () use ($data, $customer, $mailboxId, $departmentId) {
                     $ticket = Ticket::create([
                         'subject' => $data['subject'],
                         'status' => TicketStatus::Open,
@@ -33,6 +33,7 @@ class TicketService
                         'customer_id' => $customer->id,
                         'assigned_to' => $data['assigned_to'] ?? null,
                         'mailbox_id' => $mailboxId,
+                        'department_id' => $departmentId,
                         'last_activity_at' => now(),
                     ]);
 

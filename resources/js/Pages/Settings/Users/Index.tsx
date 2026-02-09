@@ -1,6 +1,6 @@
 import { Head, useForm, router } from '@inertiajs/react';
 import { FormEventHandler, useState } from 'react';
-import AgentLayout from '@/Layouts/AgentLayout';
+import SettingsLayout from '@/Layouts/SettingsLayout';
 import { PageProps, User } from '@/types';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
@@ -39,7 +39,6 @@ import {
 } from '@/Components/ui/dropdown-menu';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Badge } from '@/Components/ui/badge';
-import { Separator } from '@/Components/ui/separator';
 import { Switch } from '@/Components/ui/switch';
 import { Avatar, AvatarFallback, AvatarImage } from '@/Components/ui/avatar';
 import { UserPlus, MoreVertical, Mail, Shield, ShieldOff } from 'lucide-react';
@@ -93,13 +92,13 @@ export default function UsersIndex({ users }: UsersIndexProps) {
     };
 
     return (
-        <AgentLayout>
+        <SettingsLayout>
             <Head title="User Management" />
 
-            <div className="container max-w-7xl mx-auto p-6 space-y-6">
+            <div className="space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
+                        <h1 className="text-3xl font-bold tracking-tight">Users</h1>
                         <p className="text-muted-foreground">
                             Manage team members and their permissions
                         </p>
@@ -182,8 +181,6 @@ export default function UsersIndex({ users }: UsersIndexProps) {
                         </DialogContent>
                     </Dialog>
                 </div>
-
-                <Separator />
 
                 <Card>
                     <CardHeader>
@@ -290,6 +287,6 @@ export default function UsersIndex({ users }: UsersIndexProps) {
                     </CardContent>
                 </Card>
             </div>
-        </AgentLayout>
+        </SettingsLayout>
     );
 }

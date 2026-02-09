@@ -10,6 +10,7 @@ use App\Http\Controllers\Customer\CustomerAuthController;
 use App\Http\Controllers\Customer\CustomerTicketController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Settings\AppearanceController;
+use App\Http\Controllers\Settings\DepartmentController;
 use App\Http\Controllers\Settings\GeneralSettingsController;
 use App\Http\Controllers\Settings\MailboxController;
 use App\Http\Controllers\Settings\SlaController;
@@ -76,6 +77,11 @@ Route::middleware(['auth', 'verified'])->prefix('settings')->name('settings.')->
 
     Route::get('appearance', [AppearanceController::class, 'index'])->name('appearance.index');
     Route::put('appearance', [AppearanceController::class, 'update'])->name('appearance.update');
+
+    Route::get('departments', [DepartmentController::class, 'index'])->name('departments.index');
+    Route::post('departments', [DepartmentController::class, 'store'])->name('departments.store');
+    Route::put('departments/{department}', [DepartmentController::class, 'update'])->name('departments.update');
+    Route::delete('departments/{department}', [DepartmentController::class, 'destroy'])->name('departments.destroy');
 
     Route::resource('mailboxes', MailboxController::class)->except(['show']);
     Route::post('mailboxes/{mailbox}/test', [MailboxController::class, 'test'])->name('mailboxes.test');

@@ -8,6 +8,7 @@ use App\Enums\TicketStatus;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendEmailReplyJob;
 use App\Models\Customer;
+use App\Models\Department;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\TicketService;
@@ -24,7 +25,7 @@ class TicketController extends Controller
 
     public function index(Request $request): Response
     {
-        $query = Ticket::with(['customer', 'assignee', 'tags', 'slaTimer.slaPolicy'])
+        $query = Ticket::with(['customer', 'assignee', 'department', 'tags', 'slaTimer.slaPolicy'])
             ->orderBy('last_activity_at', 'desc');
 
         if ($request->filled('status')) {
@@ -33,6 +34,10 @@ class TicketController extends Controller
 
         if ($request->filled('priority')) {
             $query->where('priority', $request->priority);
+        }
+
+        if ($request->filled('department')) {
+            $query->where('department_id', $request->department);
         }
 
         if ($request->filled('assigned_to')) {
@@ -61,8 +66,9 @@ class TicketController extends Controller
 
         return Inertia::render('Agent/Tickets/Index', [
             'tickets' => $tickets,
-            'filters' => $request->only(['status', 'priority', 'assigned_to', 'search']),
+            'filters' => $request->only(['status', 'priority', 'assigned_to', 'department', 'search']),
             'agents' => User::where('is_active', true)->select('id', 'name', 'email', 'avatar')->get(),
+            'departments' => Department::orderBy('name')->get(['id', 'name']),
             'counts' => [
                 'open' => Ticket::where('status', TicketStatus::Open)->count(),
                 'pending' => Ticket::where('status', TicketStatus::Pending)->count(),
@@ -76,6 +82,7 @@ class TicketController extends Controller
         $ticket->load([
             'customer',
             'assignee',
+            'department',
             'tags',
             'mailbox',
             'slaTimer.slaPolicy',

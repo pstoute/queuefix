@@ -30,7 +30,7 @@ class MailboxFactory extends Factory
                 'port' => 587,
                 'encryption' => 'tls',
             ],
-            'department' => fake()->word(),
+            'department_id' => null,
             'polling_interval' => 2,
             'is_active' => true,
         ];

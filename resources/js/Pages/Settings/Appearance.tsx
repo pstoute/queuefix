@@ -1,12 +1,11 @@
 import { Head, useForm } from '@inertiajs/react';
 import { FormEventHandler, useState, useRef } from 'react';
-import AgentLayout from '@/Layouts/AgentLayout';
+import SettingsLayout from '@/Layouts/SettingsLayout';
 import { PageProps } from '@/types';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
-import { Separator } from '@/Components/ui/separator';
 import { Upload, X } from 'lucide-react';
 
 interface AppearanceSettingsProps extends PageProps {
@@ -52,18 +51,16 @@ export default function Appearance({ settings }: AppearanceSettingsProps) {
     };
 
     return (
-        <AgentLayout>
+        <SettingsLayout>
             <Head title="Appearance Settings" />
 
-            <div className="container max-w-7xl mx-auto p-6 space-y-6">
+            <div className="space-y-6">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Appearance Settings</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">Appearance</h1>
                     <p className="text-muted-foreground">
                         Customize the look and feel of your help desk
                     </p>
                 </div>
-
-                <Separator />
 
                 <Card>
                     <CardHeader>
@@ -168,6 +165,6 @@ export default function Appearance({ settings }: AppearanceSettingsProps) {
                     </CardContent>
                 </Card>
             </div>
-        </AgentLayout>
+        </SettingsLayout>
     );
 }

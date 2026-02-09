@@ -5,6 +5,7 @@ namespace App\Services\Email;
 use App\Models\Attachment;
 use App\Models\Customer;
 use App\Models\Mailbox;
+use App\Models\MailboxAlias;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
@@ -29,7 +30,9 @@ class EmailProcessorService
             return $this->appendToTicket($existingTicket, $emailData, $customer);
         }
 
-        return $this->createNewTicket($emailData, $customer, $mailbox);
+        $departmentId = $this->resolveDepartment($emailData, $mailbox);
+
+        return $this->createNewTicket($emailData, $customer, $mailbox, $departmentId);
     }
 
     private function findOrCreateCustomer(array $emailData): Customer
@@ -76,12 +79,26 @@ class EmailProcessorService
         return null;
     }
 
-    private function createNewTicket(array $emailData, Customer $customer, Mailbox $mailbox): Ticket
+    private function resolveDepartment(array $emailData, Mailbox $mailbox): ?string
+    {
+        $toEmail = strtolower($emailData['to_email'] ?? '');
+
+        if ($toEmail) {
+            $alias = MailboxAlias::where('email', $toEmail)->first();
+            if ($alias) {
+                return $alias->department_id;
+            }
+        }
+
+        return $mailbox->department_id;
+    }
+
+    private function createNewTicket(array $emailData, Customer $customer, Mailbox $mailbox, ?string $departmentId = null): Ticket
     {
         $ticket = $this->ticketService->createTicket([
             'subject' => $emailData['subject'] ?? '(No Subject)',
             'body' => $emailData['body_html'] ?? $emailData['body_text'] ?? '',
-        ], $customer, $mailbox->id);
+        ], $customer, $mailbox->id, $departmentId);
 
         $message = $ticket->messages()->first();
 

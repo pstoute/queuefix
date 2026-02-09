@@ -28,6 +28,7 @@ class Ticket extends Model
         'customer_id',
         'assigned_to',
         'mailbox_id',
+        'department_id',
         'last_activity_at',
     ];
 
@@ -117,6 +118,11 @@ class Ticket extends Model
     public function mailbox(): BelongsTo
     {
         return $this->belongsTo(Mailbox::class);
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
     }
 
     /**

@@ -1,5 +1,5 @@
 import { Head, Link, router } from '@inertiajs/react';
-import AgentLayout from '@/Layouts/AgentLayout';
+import SettingsLayout from '@/Layouts/SettingsLayout';
 import { PageProps, Mailbox } from '@/types';
 import { Button } from '@/Components/ui/button';
 import {
@@ -20,7 +20,6 @@ import {
 } from '@/Components/ui/dropdown-menu';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Badge } from '@/Components/ui/badge';
-import { Separator } from '@/Components/ui/separator';
 import { Plus, MoreVertical, Mail, Clock, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -60,10 +59,10 @@ export default function MailboxesIndex({ mailboxes }: MailboxesIndexProps) {
     };
 
     return (
-        <AgentLayout>
+        <SettingsLayout>
             <Head title="Mailboxes" />
 
-            <div className="container max-w-7xl mx-auto p-6 space-y-6">
+            <div className="space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">Mailboxes</h1>
@@ -78,8 +77,6 @@ export default function MailboxesIndex({ mailboxes }: MailboxesIndexProps) {
                         </Button>
                     </Link>
                 </div>
-
-                <Separator />
 
                 <Card>
                     <CardHeader>
@@ -134,7 +131,7 @@ export default function MailboxesIndex({ mailboxes }: MailboxesIndexProps) {
                                                 </Badge>
                                             </TableCell>
                                             <TableCell>
-                                                {mailbox.department || (
+                                                {mailbox.department?.name || (
                                                     <span className="text-muted-foreground">—</span>
                                                 )}
                                             </TableCell>
@@ -208,6 +205,6 @@ export default function MailboxesIndex({ mailboxes }: MailboxesIndexProps) {
                     </CardContent>
                 </Card>
             </div>
-        </AgentLayout>
+        </SettingsLayout>
     );
 }

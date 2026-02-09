@@ -1,7 +1,7 @@
 import { Head, useForm, Link } from '@inertiajs/react';
-import { FormEventHandler } from 'react';
-import AgentLayout from '@/Layouts/AgentLayout';
-import { PageProps, Mailbox, MailboxType } from '@/types';
+import { FormEventHandler, useState } from 'react';
+import SettingsLayout from '@/Layouts/SettingsLayout';
+import { PageProps, Mailbox, MailboxType, Department } from '@/types';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
@@ -13,10 +13,9 @@ import {
     SelectValue,
 } from '@/Components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
-import { Separator } from '@/Components/ui/separator';
 import { Switch } from '@/Components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Plus, Trash2 } from 'lucide-react';
 
 interface EditMailboxProps extends PageProps {
     mailbox: Mailbox & {
@@ -28,16 +27,22 @@ interface EditMailboxProps extends PageProps {
         smtp_port?: number;
         smtp_encryption?: string;
         smtp_username?: string;
+        aliases?: Array<{ id: string; email: string; department_id: string }>;
     };
     types: Array<{ value: MailboxType; label: string }>;
+    departments: Array<{ id: string; name: string }>;
 }
 
-export default function EditMailbox({ mailbox, types }: EditMailboxProps) {
-    const { data, setData, put, processing, errors } = useForm({
+export default function EditMailbox({ mailbox, types, departments }: EditMailboxProps) {
+    const [aliases, setAliases] = useState<Array<{ email: string; department_id: string }>>(
+        (mailbox.aliases || []).map((a) => ({ email: a.email, department_id: a.department_id }))
+    );
+
+    const { data, setData, put, processing, errors, transform } = useForm({
         name: mailbox.name,
         email: mailbox.email,
         type: mailbox.type,
-        department: mailbox.department || '',
+        department_id: mailbox.department_id || '',
         polling_interval: mailbox.polling_interval,
         is_active: mailbox.is_active,
         // IMAP settings
@@ -54,8 +59,26 @@ export default function EditMailbox({ mailbox, types }: EditMailboxProps) {
         smtp_password: '',
     });
 
+    const addAlias = () => {
+        setAliases([...aliases, { email: '', department_id: '' }]);
+    };
+
+    const removeAlias = (index: number) => {
+        setAliases(aliases.filter((_, i) => i !== index));
+    };
+
+    const updateAlias = (index: number, field: 'email' | 'department_id', value: string) => {
+        const updated = [...aliases];
+        updated[index] = { ...updated[index], [field]: value };
+        setAliases(updated);
+    };
+
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
+        transform((formData) => ({
+            ...formData,
+            aliases: aliases.filter((a) => a.email && a.department_id),
+        }));
         put(route('settings.mailboxes.update', mailbox.id));
     };
 
@@ -64,10 +87,10 @@ export default function EditMailbox({ mailbox, types }: EditMailboxProps) {
     };
 
     return (
-        <AgentLayout>
+        <SettingsLayout>
             <Head title={`Edit ${mailbox.name}`} />
 
-            <div className="container max-w-7xl mx-auto p-6 space-y-6">
+            <div className="space-y-6">
                 <div className="flex items-center gap-4">
                     <Link href={route('settings.mailboxes.index')}>
                         <Button variant="ghost" size="icon">
@@ -79,8 +102,6 @@ export default function EditMailbox({ mailbox, types }: EditMailboxProps) {
                         <p className="text-muted-foreground">Update mailbox configuration</p>
                     </div>
                 </div>
-
-                <Separator />
 
                 <form onSubmit={submit} className="space-y-6">
                     <Card>
@@ -144,15 +165,28 @@ export default function EditMailbox({ mailbox, types }: EditMailboxProps) {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="department">Department (Optional)</Label>
-                                    <Input
-                                        id="department"
-                                        value={data.department}
-                                        onChange={(e) => setData('department', e.target.value)}
-                                        placeholder="Technical Support"
-                                    />
-                                    {errors.department && (
-                                        <p className="text-sm text-destructive">{errors.department}</p>
+                                    <Label htmlFor="department_id">Default Department</Label>
+                                    <Select
+                                        value={data.department_id}
+                                        onValueChange={(value) => setData('department_id', value === 'none' ? '' : value)}
+                                    >
+                                        <SelectTrigger id="department_id">
+                                            <SelectValue placeholder="Select department..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">None</SelectItem>
+                                            {departments.map((dept) => (
+                                                <SelectItem key={dept.id} value={dept.id}>
+                                                    {dept.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">
+                                        Catch-all department for unmatched aliases
+                                    </p>
+                                    {errors.department_id && (
+                                        <p className="text-sm text-destructive">{errors.department_id}</p>
                                     )}
                                 </div>
                             </div>
@@ -187,6 +221,63 @@ export default function EditMailbox({ mailbox, types }: EditMailboxProps) {
                                     <Label htmlFor="is_active">Active</Label>
                                 </div>
                             </div>
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Email Aliases</CardTitle>
+                            <CardDescription>
+                                Route alias email addresses to specific departments
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            {aliases.map((alias, index) => (
+                                <div key={index} className="flex items-start gap-3">
+                                    <div className="flex-1 space-y-2">
+                                        <Input
+                                            type="email"
+                                            value={alias.email}
+                                            onChange={(e) => updateAlias(index, 'email', e.target.value)}
+                                            placeholder="billing@example.com"
+                                        />
+                                    </div>
+                                    <div className="flex-1">
+                                        <Select
+                                            value={alias.department_id}
+                                            onValueChange={(value) => updateAlias(index, 'department_id', value)}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select department..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {departments.map((dept) => (
+                                                    <SelectItem key={dept.id} value={dept.id}>
+                                                        {dept.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => removeAlias(index)}
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            ))}
+                            <Button type="button" variant="outline" size="sm" onClick={addAlias}>
+                                <Plus className="mr-2 h-4 w-4" />
+                                Add Alias
+                            </Button>
+                            {aliases.length === 0 && (
+                                <p className="text-sm text-muted-foreground">
+                                    No aliases configured. Emails not matching any alias will use the default department.
+                                </p>
+                            )}
                         </CardContent>
                     </Card>
 
@@ -457,6 +548,6 @@ export default function EditMailbox({ mailbox, types }: EditMailboxProps) {
                     </div>
                 </form>
             </div>
-        </AgentLayout>
+        </SettingsLayout>
     );
 }
