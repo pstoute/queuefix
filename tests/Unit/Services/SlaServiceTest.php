@@ -11,7 +11,7 @@ use App\Services\SlaService;
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
-    $this->slaService = new SlaService();
+    $this->slaService = new SlaService;
 });
 
 test('initializing SLA timer with matching policy', function () {

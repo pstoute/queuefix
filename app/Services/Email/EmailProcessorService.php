@@ -2,6 +2,8 @@
 
 namespace App\Services\Email;
 
+use App\Enums\MessageType;
+use App\Enums\TicketStatus;
 use App\Models\Attachment;
 use App\Models\Customer;
 use App\Models\Mailbox;
@@ -10,8 +12,6 @@ use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\TicketService;
-use App\Enums\MessageType;
-use App\Enums\TicketStatus;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -69,8 +69,8 @@ class EmailProcessorService
 
         $prefix = Setting::get('ticket_prefix', 'QF');
         $escapedPrefix = preg_quote($prefix, '/');
-        if (preg_match('/\[' . $escapedPrefix . '-(\d+)\]/', $emailData['subject'] ?? '', $matches)) {
-            $ticket = Ticket::where('ticket_number', $prefix . '-' . $matches[1])->first();
+        if (preg_match('/\['.$escapedPrefix.'-(\d+)\]/', $emailData['subject'] ?? '', $matches)) {
+            $ticket = Ticket::where('ticket_number', $prefix.'-'.$matches[1])->first();
             if ($ticket) {
                 return $ticket;
             }
@@ -151,7 +151,7 @@ class EmailProcessorService
     {
         foreach ($attachments as $attachment) {
             $filename = $attachment['filename'] ?? 'unnamed';
-            $path = 'attachments/' . $message->ticket_id . '/' . Str::uuid() . '_' . $filename;
+            $path = 'attachments/'.$message->ticket_id.'/'.Str::uuid().'_'.$filename;
 
             Storage::disk('local')->put($path, $attachment['content']);
 

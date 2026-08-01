@@ -57,6 +57,8 @@ class TicketService
                 }
             }
         }
+
+        throw new \RuntimeException('Unable to create ticket after retrying ticket-number allocation.');
     }
 
     public function addMessage(Ticket $ticket, array $data): Message
@@ -132,6 +134,6 @@ class TicketService
         $prefix = Setting::get('ticket_prefix', 'QF');
         $currentCounter = (int) Setting::get('ticket_counter', '0');
 
-        return $prefix . '-' . ($currentCounter + 1);
+        return $prefix.'-'.($currentCounter + 1);
     }
 }

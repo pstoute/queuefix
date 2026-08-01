@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\MessageType;
 use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Mailbox;

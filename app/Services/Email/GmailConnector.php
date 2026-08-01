@@ -19,7 +19,7 @@ class GmailConnector
         $this->mailbox = $mailbox;
 
         try {
-            $client = new GoogleClient();
+            $client = new GoogleClient;
             $client->setClientId(config('services.google_gmail.client_id'));
             $client->setClientSecret(config('services.google_gmail.client_secret'));
             $client->setAccessToken($mailbox->getDecryptedCredential('access_token'));
@@ -58,7 +58,7 @@ class GmailConnector
         try {
             $query = 'is:unread';
             if ($since) {
-                $query .= ' after:' . $since->format('Y/m/d');
+                $query .= ' after:'.$since->format('Y/m/d');
             }
 
             $results = $this->service->users_messages->listUsersMessages('me', [
@@ -99,7 +99,7 @@ class GmailConnector
         $body = $this->extractBody($message->getPayload());
         $attachments = $this->extractAttachments($message->getPayload(), $messageId);
 
-        $modify = new ModifyMessageRequest();
+        $modify = new ModifyMessageRequest;
         $modify->setRemoveLabelIds(['UNREAD']);
         $this->service->users_messages->modify('me', $messageId, $modify);
 
@@ -231,18 +231,18 @@ class GmailConnector
             if (! empty($data['text'])) {
                 $rawMessage .= "--{$boundary}\r\n";
                 $rawMessage .= "Content-Type: text/plain; charset=UTF-8\r\n\r\n";
-                $rawMessage .= $data['text'] . "\r\n";
+                $rawMessage .= $data['text']."\r\n";
             }
 
             if (! empty($data['html'])) {
                 $rawMessage .= "--{$boundary}\r\n";
                 $rawMessage .= "Content-Type: text/html; charset=UTF-8\r\n\r\n";
-                $rawMessage .= $data['html'] . "\r\n";
+                $rawMessage .= $data['html']."\r\n";
             }
 
             $rawMessage .= "--{$boundary}--";
 
-            $gmailMessage = new Gmail\Message();
+            $gmailMessage = new Gmail\Message;
             $gmailMessage->setRaw(rtrim(strtr(base64_encode($rawMessage), '+/', '-_'), '='));
 
             $this->service->users_messages->send('me', $gmailMessage);

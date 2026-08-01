@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Agent;
 
 use App\Enums\TicketStatus;
 use App\Http\Controllers\Controller;
-use App\Models\Ticket;
 use App\Models\SlaTimer;
+use App\Models\Ticket;
 use Inertia\Inertia;
 use Inertia\Response;
 

@@ -6,7 +6,6 @@ use App\Enums\MailboxType;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\Mailbox;
-use App\Models\MailboxAlias;
 use App\Services\Email\GmailConnector;
 use App\Services\Email\ImapConnector;
 use App\Services\Email\MicrosoftGraphConnector;
@@ -55,7 +54,7 @@ class MailboxController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:mailboxes,email',
-            'type' => 'required|string|in:' . implode(',', array_column(MailboxType::cases(), 'value')),
+            'type' => 'required|string|in:'.implode(',', array_column(MailboxType::cases(), 'value')),
             'department_id' => 'nullable|exists:departments,id',
             'polling_interval' => 'integer|min:1|max:60',
             'incoming_settings' => 'required_if:type,imap|array',
@@ -74,7 +73,7 @@ class MailboxController extends Controller
             'aliases.*.department_id' => 'required|exists:departments,id',
         ]);
 
-        $mailbox = new Mailbox();
+        $mailbox = new Mailbox;
         $mailbox->name = $validated['name'];
         $mailbox->email = $validated['email'];
         $mailbox->type = MailboxType::from($validated['type']);
@@ -131,7 +130,7 @@ class MailboxController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:mailboxes,email,' . $mailbox->id,
+            'email' => 'required|email|unique:mailboxes,email,'.$mailbox->id,
             'department_id' => 'nullable|exists:departments,id',
             'polling_interval' => 'integer|min:1|max:60',
             'is_active' => 'boolean',

@@ -8,7 +8,6 @@ use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Tag;
-use App\Models\Ticket;
 use App\Models\User;
 use App\Services\SlaService;
 use App\Services\TicketService;
@@ -131,7 +130,7 @@ test('adding agent reply records first response in SLA', function () {
 
     $this->slaService->shouldReceive('recordFirstResponse')
         ->once()
-        ->with(Mockery::on(fn($t) => $t->id === $ticket->id));
+        ->with(Mockery::on(fn ($t) => $t->id === $ticket->id));
 
     $this->ticketService->addMessage($ticket, [
         'type' => MessageType::Reply,
@@ -175,7 +174,7 @@ test('updating status calls SLA service', function () {
     $this->slaService->shouldReceive('handleStatusChange')
         ->once()
         ->with(
-            Mockery::on(fn($t) => $t->id === $ticket->id),
+            Mockery::on(fn ($t) => $t->id === $ticket->id),
             TicketStatus::Open,
             TicketStatus::Pending
         );
@@ -200,7 +199,7 @@ test('updating status to resolved records resolution', function () {
     $this->slaService->shouldReceive('handleStatusChange')->once();
     $this->slaService->shouldReceive('recordResolution')
         ->once()
-        ->with(Mockery::on(fn($t) => $t->id === $ticket->id));
+        ->with(Mockery::on(fn ($t) => $t->id === $ticket->id));
 
     $this->ticketService->updateStatus($ticket, TicketStatus::Resolved);
 
@@ -220,7 +219,7 @@ test('updating status to closed records resolution', function () {
     $this->slaService->shouldReceive('handleStatusChange')->once();
     $this->slaService->shouldReceive('recordResolution')
         ->once()
-        ->with(Mockery::on(fn($t) => $t->id === $ticket->id));
+        ->with(Mockery::on(fn ($t) => $t->id === $ticket->id));
 
     $this->ticketService->updateStatus($ticket, TicketStatus::Closed);
 

@@ -2,7 +2,11 @@
 
 use App\Enums\UserRole;
 use App\Models\User;
-use function Pest\Laravel\{actingAs, get, post, put};
+
+use function Pest\Laravel\actingAs;
+use function Pest\Laravel\get;
+use function Pest\Laravel\post;
+use function Pest\Laravel\put;
 
 beforeEach(function () {
     $this->admin = User::factory()->admin()->create();

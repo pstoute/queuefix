@@ -4,7 +4,12 @@ use App\Enums\MailboxType;
 use App\Enums\UserRole;
 use App\Models\Mailbox;
 use App\Models\User;
-use function Pest\Laravel\{actingAs, get, post, put, delete};
+
+use function Pest\Laravel\actingAs;
+use function Pest\Laravel\delete;
+use function Pest\Laravel\get;
+use function Pest\Laravel\post;
+use function Pest\Laravel\put;
 
 beforeEach(function () {
     $this->admin = User::factory()->admin()->create();

@@ -4,7 +4,9 @@ use App\Enums\TicketStatus;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
-use function Pest\Laravel\{actingAs, get};
+
+use function Pest\Laravel\actingAs;
+use function Pest\Laravel\get;
 
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');

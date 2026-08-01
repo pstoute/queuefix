@@ -3,13 +3,16 @@
 use App\Enums\MessageType;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
-use App\Enums\UserRole;
 use App\Models\Customer;
 use App\Models\Setting;
 use App\Models\Tag;
 use App\Models\Ticket;
 use App\Models\User;
-use function Pest\Laravel\{actingAs, get, post, patch};
+
+use function Pest\Laravel\actingAs;
+use function Pest\Laravel\get;
+use function Pest\Laravel\patch;
+use function Pest\Laravel\post;
 
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');

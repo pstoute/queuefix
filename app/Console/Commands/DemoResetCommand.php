@@ -29,7 +29,7 @@ class DemoResetCommand extends Command
         // Clear sessions
         $sessionPath = storage_path('framework/sessions');
         if (is_dir($sessionPath)) {
-            $files = glob($sessionPath . '/*');
+            $files = glob($sessionPath.'/*');
             foreach ($files as $file) {
                 if (is_file($file)) {
                     unlink($file);

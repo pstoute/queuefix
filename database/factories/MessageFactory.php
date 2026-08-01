@@ -21,8 +21,8 @@ class MessageFactory extends Factory
             'sender_id' => Customer::factory(),
             'type' => MessageType::Reply,
             'body_text' => fake()->paragraph(),
-            'body_html' => '<p>' . fake()->paragraph() . '</p>',
-            'message_id' => '<' . fake()->uuid() . '@example.com>',
+            'body_html' => '<p>'.fake()->paragraph().'</p>',
+            'message_id' => '<'.fake()->uuid().'@example.com>',
             'in_reply_to' => null,
             'references' => null,
         ];

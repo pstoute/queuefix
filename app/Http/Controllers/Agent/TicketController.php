@@ -112,7 +112,7 @@ class TicketController extends Controller
         $validated = $request->validate([
             'subject' => 'required|string|max:255',
             'body' => 'required|string',
-            'priority' => 'sometimes|string|in:' . implode(',', array_column(TicketPriority::cases(), 'value')),
+            'priority' => 'sometimes|string|in:'.implode(',', array_column(TicketPriority::cases(), 'value')),
             'assigned_to' => 'nullable|exists:users,id',
             'customer_email' => 'required|email',
             'customer_name' => 'required|string|max:255',
@@ -156,7 +156,7 @@ class TicketController extends Controller
     public function updateStatus(Request $request, Ticket $ticket): RedirectResponse
     {
         $validated = $request->validate([
-            'status' => 'required|string|in:' . implode(',', array_column(TicketStatus::cases(), 'value')),
+            'status' => 'required|string|in:'.implode(',', array_column(TicketStatus::cases(), 'value')),
         ]);
 
         $this->ticketService->updateStatus($ticket, TicketStatus::from($validated['status']));
@@ -167,7 +167,7 @@ class TicketController extends Controller
     public function updatePriority(Request $request, Ticket $ticket): RedirectResponse
     {
         $validated = $request->validate([
-            'priority' => 'required|string|in:' . implode(',', array_column(TicketPriority::cases(), 'value')),
+            'priority' => 'required|string|in:'.implode(',', array_column(TicketPriority::cases(), 'value')),
         ]);
 
         $ticket->update(['priority' => TicketPriority::from($validated['priority'])]);

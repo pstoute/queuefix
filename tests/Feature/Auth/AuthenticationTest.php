@@ -2,7 +2,9 @@
 
 use App\Models\User;
 use Illuminate\Support\Facades\URL;
-use function Pest\Laravel\{get, post};
+
+use function Pest\Laravel\get;
+use function Pest\Laravel\post;
 
 test('login page renders', function () {
     get(route('login'))

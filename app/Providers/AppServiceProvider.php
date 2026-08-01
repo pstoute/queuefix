@@ -25,6 +25,6 @@ class AppServiceProvider extends ServiceProvider
     {
         Vite::prefetch(concurrency: 3);
 
-        Event::listen(SocialiteWasCalled::class, MicrosoftExtendSocialite::class . '@handle');
+        Event::listen(SocialiteWasCalled::class, MicrosoftExtendSocialite::class.'@handle');
     }
 }

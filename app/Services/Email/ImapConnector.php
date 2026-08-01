@@ -22,7 +22,7 @@ class ImapConnector
         $username = $mailbox->getDecryptedCredential('username');
         $password = $mailbox->getDecryptedCredential('password');
 
-        $mailboxPath = '{' . $host . ':' . $port . '/imap/' . $encryption . '}INBOX';
+        $mailboxPath = '{'.$host.':'.$port.'/imap/'.$encryption.'}INBOX';
 
         try {
             $this->connection = @imap_open($mailboxPath, $username, $password);
@@ -54,7 +54,7 @@ class ImapConnector
         }
 
         $criteria = $since
-            ? 'SINCE "' . $since->format('d-M-Y') . '"'
+            ? 'SINCE "'.$since->format('d-M-Y').'"'
             : 'UNSEEN';
 
         $emails = imap_search($this->connection, $criteria);
@@ -85,11 +85,11 @@ class ImapConnector
         $header = imap_headerinfo($this->connection, $emailNumber);
         $structure = imap_fetchstructure($this->connection, $emailNumber);
 
-        $fromAddress = $header->from[0]->mailbox . '@' . $header->from[0]->host;
+        $fromAddress = $header->from[0]->mailbox.'@'.$header->from[0]->host;
         $fromName = $header->from[0]->personal ?? null;
 
         $toAddress = isset($header->to[0])
-            ? $header->to[0]->mailbox . '@' . $header->to[0]->host
+            ? $header->to[0]->mailbox.'@'.$header->to[0]->host
             : null;
 
         $body = $this->getBody($emailNumber, $structure);
@@ -197,12 +197,12 @@ class ImapConnector
         $types = [0 => 'text', 1 => 'multipart', 2 => 'message', 3 => 'application', 4 => 'audio', 5 => 'image', 6 => 'video', 7 => 'other'];
         $type = $types[$part->type] ?? 'application';
 
-        return $type . '/' . strtolower($part->subtype);
+        return $type.'/'.strtolower($part->subtype);
     }
 
     private function extractHeader(string $rawHeader, string $headerName): ?string
     {
-        if (preg_match('/^' . preg_quote($headerName, '/') . ':\s*(.+?)$/mi', $rawHeader, $matches)) {
+        if (preg_match('/^'.preg_quote($headerName, '/').':\s*(.+?)$/mi', $rawHeader, $matches)) {
             return trim($matches[1]);
         }
 
@@ -223,7 +223,7 @@ class ImapConnector
         $transport->setPassword($this->mailbox->getDecryptedCredential('smtp_password') ?? $this->mailbox->getDecryptedCredential('password'));
 
         try {
-            $email = (new \Symfony\Component\Mime\Email())
+            $email = (new \Symfony\Component\Mime\Email)
                 ->from($this->mailbox->email)
                 ->to($data['to'])
                 ->subject($data['subject']);

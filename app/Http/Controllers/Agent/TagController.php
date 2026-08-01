@@ -17,7 +17,7 @@ class TagController extends Controller
     {
         $tags = Tag::query()
             ->when($request->filled('search'), function ($q) use ($request) {
-                $q->whereRaw('LOWER(name) LIKE ?', ['%' . strtolower($request->search) . '%']);
+                $q->whereRaw('LOWER(name) LIKE ?', ['%'.strtolower($request->search).'%']);
             })
             ->orderBy('name')
             ->get();

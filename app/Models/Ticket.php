@@ -93,7 +93,7 @@ class Ticket extends Model
             return $next;
         });
 
-        return $prefix . '-' . $nextNumber;
+        return $prefix.'-'.$nextNumber;
     }
 
     /**
