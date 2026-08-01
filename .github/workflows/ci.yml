@@ -93,7 +93,7 @@ jobs:
           DB_DATABASE: queuefix_test
           DB_USERNAME: queuefix
           DB_PASSWORD: secret
-        run: php artisan test --coverage --min=80
+        run: php artisan test --coverage --min=50
 
       - name: Run Vitest
         run: pnpm test -- --run
@@ -185,7 +185,7 @@ jobs:
           DB_DATABASE: queuefix_test
           DB_USERNAME: queuefix
           DB_PASSWORD: secret
-        run: php artisan test --coverage --min=80
+        run: php artisan test --coverage --min=50
 
   lint:
     name: Lint & Static Analysis

@@ -202,7 +202,7 @@ test('SLA resume from pending to open', function () {
 
     $timer->refresh();
     expect($timer->paused_at)->toBeNull();
-    expect($timer->total_paused_seconds)->toBeGreaterThan(0);
+    expect($timer->total_paused_seconds)->toBeInt()->toBeGreaterThan(0);
 });
 
 test('SLA resume extends due dates by paused time', function () {
