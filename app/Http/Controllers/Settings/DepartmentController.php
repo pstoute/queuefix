@@ -33,7 +33,7 @@ class DepartmentController extends Controller
     public function update(Request $request, Department $department): RedirectResponse
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:departments,name,' . $department->id,
+            'name' => 'required|string|max:255|unique:departments,name,'.$department->id,
             'description' => 'nullable|string|max:1000',
         ]);
 

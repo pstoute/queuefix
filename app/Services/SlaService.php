@@ -71,7 +71,7 @@ class SlaService
         }
 
         if ($wasPaused && ! $shouldPause && $timer->paused_at) {
-            $pausedSeconds = Carbon::parse($timer->paused_at)->diffInSeconds(now());
+            $pausedSeconds = (int) Carbon::parse($timer->paused_at)->diffInSeconds(now());
             $timer->update([
                 'total_paused_seconds' => $timer->total_paused_seconds + $pausedSeconds,
                 'paused_at' => null,

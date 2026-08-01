@@ -13,7 +13,7 @@ class MailboxFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => fake()->company() . ' Support',
+            'name' => fake()->company().' Support',
             'email' => fake()->unique()->safeEmail(),
             'type' => MailboxType::Imap,
             'credentials' => [

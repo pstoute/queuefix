@@ -1,8 +1,10 @@
 <?php
 
-use App\Models\Setting;
 use App\Models\User;
-use function Pest\Laravel\{actingAs, get, put};
+
+use function Pest\Laravel\actingAs;
+use function Pest\Laravel\get;
+use function Pest\Laravel\put;
 
 beforeEach(function () {
     $this->admin = User::factory()->admin()->create();

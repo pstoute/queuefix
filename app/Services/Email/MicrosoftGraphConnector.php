@@ -47,7 +47,7 @@ class MicrosoftGraphConnector
         }
 
         $response = Http::asForm()->post(
-            'https://login.microsoftonline.com/' . config('services.microsoft_graph.tenant_id', 'common') . '/oauth2/v2.0/token',
+            'https://login.microsoftonline.com/'.config('services.microsoft_graph.tenant_id', 'common').'/oauth2/v2.0/token',
             [
                 'client_id' => config('services.microsoft_graph.client_id'),
                 'client_secret' => config('services.microsoft_graph.client_secret'),
@@ -255,7 +255,7 @@ class MicrosoftGraphConnector
                     return ['success' => true, 'message' => 'Microsoft Graph connection successful'];
                 }
 
-                return ['success' => false, 'message' => 'API call failed: ' . $response->body()];
+                return ['success' => false, 'message' => 'API call failed: '.$response->body()];
             } catch (\Throwable $e) {
                 return ['success' => false, 'message' => $e->getMessage()];
             }

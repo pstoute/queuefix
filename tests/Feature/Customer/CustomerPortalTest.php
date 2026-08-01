@@ -4,7 +4,10 @@ use App\Models\Customer;
 use App\Models\Setting;
 use App\Models\Ticket;
 use Illuminate\Support\Facades\URL;
-use function Pest\Laravel\{actingAs, get, post};
+
+use function Pest\Laravel\actingAs;
+use function Pest\Laravel\get;
+use function Pest\Laravel\post;
 
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');

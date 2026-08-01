@@ -11,7 +11,7 @@ use App\Services\SlaService;
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
-    $this->slaService = new SlaService();
+    $this->slaService = new SlaService;
 });
 
 test('initializing SLA timer with matching policy', function () {
@@ -202,7 +202,7 @@ test('SLA resume from pending to open', function () {
 
     $timer->refresh();
     expect($timer->paused_at)->toBeNull();
-    expect($timer->total_paused_seconds)->toBeGreaterThan(0);
+    expect($timer->total_paused_seconds)->toBeInt()->toBeGreaterThan(0);
 });
 
 test('SLA resume extends due dates by paused time', function () {

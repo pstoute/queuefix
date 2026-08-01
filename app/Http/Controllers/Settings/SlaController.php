@@ -32,7 +32,7 @@ class SlaController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'priority' => 'required|string|in:' . implode(',', array_column(TicketPriority::cases(), 'value')),
+            'priority' => 'required|string|in:'.implode(',', array_column(TicketPriority::cases(), 'value')),
             'first_response_hours' => 'required|numeric|min:0.1',
             'resolution_hours' => 'required|numeric|min:0.1',
             'is_active' => 'boolean',

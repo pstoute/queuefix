@@ -21,7 +21,7 @@ class MagicLinkMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your Sign-in Link - ' . config('app.name'),
+            subject: 'Your Sign-in Link - '.config('app.name'),
         );
     }
 

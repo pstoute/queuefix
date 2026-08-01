@@ -33,7 +33,7 @@ class UserManagementController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
-            'role' => 'required|string|in:' . implode(',', array_column(UserRole::cases(), 'value')),
+            'role' => 'required|string|in:'.implode(',', array_column(UserRole::cases(), 'value')),
         ]);
 
         User::create([
@@ -51,7 +51,7 @@ class UserManagementController extends Controller
     {
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
-            'role' => 'sometimes|string|in:' . implode(',', array_column(UserRole::cases(), 'value')),
+            'role' => 'sometimes|string|in:'.implode(',', array_column(UserRole::cases(), 'value')),
             'is_active' => 'sometimes|boolean',
         ]);
 
