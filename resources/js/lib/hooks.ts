@@ -46,7 +46,7 @@ export function useTheme() {
 export function formatRelativeTime(date: string): string {
   const now = new Date();
   const past = new Date(date);
-  const diffInSeconds = Math.floor((now.getTime() - past.getTime()) / 1000);
+  const diffInSeconds = Math.max(0, Math.floor((now.getTime() - past.getTime()) / 1000));
 
   if (diffInSeconds < 60) {
     return `${diffInSeconds}s ago`;
