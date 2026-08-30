@@ -187,6 +187,10 @@ AWS WorkMail supports standard IMAP/SMTP. Use the **Generic IMAP** option with:
 
 See `.env.example` for the complete list.
 
+## Upgrades
+
+QueueFix does not auto-install releases. Administrators can review the installed version and the latest release under **Settings → Updates**. For supported Docker Compose upgrades, follow [the backup-first upgrade guide](docs/upgrading-docker.md).
+
 ## Testing
 
 ```bash

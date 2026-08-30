@@ -14,7 +14,9 @@ use App\Http\Controllers\Settings\DepartmentController;
 use App\Http\Controllers\Settings\GeneralSettingsController;
 use App\Http\Controllers\Settings\MailboxController;
 use App\Http\Controllers\Settings\SlaController;
+use App\Http\Controllers\Settings\UpdateCheckController;
 use App\Http\Controllers\Settings\UserManagementController;
+use App\Http\Controllers\VersionController;
 use Illuminate\Support\Facades\Route;
 
 // Redirect root to login or dashboard
@@ -23,6 +25,8 @@ Route::get('/', function () {
         ? redirect()->route('agent.dashboard')
         : redirect()->route('login');
 });
+
+Route::get('/version', VersionController::class)->name('version.show');
 
 // OAuth routes
 Route::get('auth/{provider}/redirect', [SocialiteController::class, 'redirect'])
@@ -71,9 +75,11 @@ Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(
 });
 
 // Settings (admin only)
-Route::middleware(['auth', 'verified'])->prefix('settings')->name('settings.')->group(function () {
+Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('settings.')->group(function () {
     Route::get('general', [GeneralSettingsController::class, 'index'])->name('general.index');
     Route::put('general', [GeneralSettingsController::class, 'update'])->name('general.update');
+
+    Route::get('updates', [UpdateCheckController::class, 'index'])->name('updates.index');
 
     Route::get('appearance', [AppearanceController::class, 'index'])->name('appearance.index');
     Route::put('appearance', [AppearanceController::class, 'update'])->name('appearance.update');
