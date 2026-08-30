@@ -10,10 +10,12 @@ import {
   Mail,
   Clock,
   MessageSquare,
+  RefreshCw,
 } from 'lucide-react';
 
 const settingsNav = [
   { name: 'General', href: '/settings/general', icon: Settings, pattern: /^\/settings\/general/ },
+  { name: 'Updates', href: '/settings/updates', icon: RefreshCw, pattern: /^\/settings\/updates/ },
   { name: 'Appearance', href: '/settings/appearance', icon: Paintbrush, pattern: /^\/settings\/appearance/ },
   { name: 'Users', href: '/settings/users', icon: Users, pattern: /^\/settings\/users/ },
   { name: 'Departments', href: '/settings/departments', icon: Building2, pattern: /^\/settings\/departments/ },
