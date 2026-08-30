@@ -15,8 +15,8 @@ beforeEach(function () {
 test('admins can view the installed version and latest published release', function () {
     Http::fake([
         'https://api.github.com/repos/pstoute/queuefix/releases/latest' => Http::response([
-            'tag_name' => 'v1.1.0',
-            'html_url' => 'https://github.com/pstoute/queuefix/releases/tag/v1.1.0',
+            'tag_name' => 'v1.2.0',
+            'html_url' => 'https://github.com/pstoute/queuefix/releases/tag/v1.2.0',
             'published_at' => '2026-08-30T12:00:00Z',
             'body' => 'Security fixes.',
         ]),
@@ -28,17 +28,17 @@ test('admins can view the installed version and latest published release', funct
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('Settings/Updates')
-            ->where('updateCheck.installedVersion', 'v1.0.0')
-            ->where('updateCheck.latestVersion', 'v1.1.0')
+            ->where('updateCheck.installedVersion', 'v1.1.0')
+            ->where('updateCheck.latestVersion', 'v1.2.0')
             ->where('updateCheck.updateAvailable', true)
-            ->where('updateCheck.releaseUrl', 'https://github.com/pstoute/queuefix/releases/tag/v1.1.0')
+            ->where('updateCheck.releaseUrl', 'https://github.com/pstoute/queuefix/releases/tag/v1.2.0')
         );
 });
 
 test('the update check uses a cached release result', function () {
     Cache::put('queuefix.latest-release', [
-        'version' => 'v1.1.0',
-        'url' => 'https://github.com/pstoute/queuefix/releases/tag/v1.1.0',
+        'version' => 'v1.2.0',
+        'url' => 'https://github.com/pstoute/queuefix/releases/tag/v1.2.0',
         'publishedAt' => '2026-08-30T12:00:00Z',
         'notes' => 'Security fixes.',
     ], now()->addDay());
@@ -49,7 +49,7 @@ test('the update check uses a cached release result', function () {
     get(route('settings.updates.index'))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
-            ->where('updateCheck.latestVersion', 'v1.1.0')
+            ->where('updateCheck.latestVersion', 'v1.2.0')
             ->where('updateCheck.updateAvailable', true)
         );
 });
@@ -57,7 +57,7 @@ test('the update check uses a cached release result', function () {
 test('the public version endpoint only exposes the installed version', function () {
     get(route('version.show'))
         ->assertOk()
-        ->assertExactJson(['version' => 'v1.0.0']);
+        ->assertExactJson(['version' => 'v1.1.0']);
 });
 
 test('agents cannot access administrative settings', function () {
