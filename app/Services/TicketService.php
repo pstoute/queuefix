@@ -4,11 +4,11 @@ namespace App\Services;
 
 use App\Enums\MessageType;
 use App\Enums\TicketPriority;
-use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -26,9 +26,13 @@ class TicketService
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
                 return DB::transaction(function () use ($data, $customer, $mailboxId, $departmentId) {
+                    $defaultStatus = TicketStatus::query()
+                        ->where('is_default', true)
+                        ->lockForUpdate()
+                        ->sole();
                     $ticket = Ticket::create([
                         'subject' => $data['subject'],
-                        'status' => TicketStatus::Open,
+                        'ticket_status_id' => $defaultStatus->id,
                         'priority' => $data['priority'] ?? TicketPriority::Normal,
                         'customer_id' => $customer->id,
                         'assigned_to' => $data['assigned_to'] ?? null,
@@ -89,19 +93,37 @@ class TicketService
 
     public function updateStatus(Ticket $ticket, TicketStatus $newStatus): Ticket
     {
-        $oldStatus = $ticket->status;
-        $ticket->update([
-            'status' => $newStatus,
-            'last_activity_at' => now(),
-        ]);
+        return DB::transaction(function () use ($ticket, $newStatus): Ticket {
+            $newStatus = TicketStatus::query()->lockForUpdate()->findOrFail($newStatus->id);
+            $ticket = Ticket::query()->lockForUpdate()->findOrFail($ticket->id);
+            $oldStatus = $ticket->status()->firstOrFail();
 
-        $this->slaService->handleStatusChange($ticket, $oldStatus, $newStatus);
+            if ($oldStatus->is($newStatus)) {
+                return $ticket->load('status');
+            }
 
-        if ($newStatus === TicketStatus::Resolved || $newStatus === TicketStatus::Closed) {
-            $this->slaService->recordResolution($ticket);
-        }
+            $updates = [
+                'ticket_status_id' => $newStatus->id,
+                'last_activity_at' => now(),
+            ];
 
-        return $ticket->fresh();
+            $becameClosed = ! $oldStatus->is_closed && $newStatus->is_closed;
+            if ($becameClosed) {
+                $updates['resolved_at'] = $ticket->resolved_at ?? now();
+                $updates['closed_at'] = now();
+            } elseif ($oldStatus->is_closed && ! $newStatus->is_closed) {
+                $updates['closed_at'] = null;
+            }
+
+            $ticket->update($updates);
+            $this->slaService->handleStatusChange($ticket, $oldStatus, $newStatus);
+
+            if ($becameClosed) {
+                $this->slaService->recordResolution($ticket);
+            }
+
+            return $ticket->fresh('status');
+        });
     }
 
     public function assignTicket(Ticket $ticket, ?User $agent): Ticket
@@ -122,7 +144,7 @@ class TicketService
             $secondaryTags = $secondary->tags()->pluck('tags.id')->toArray();
             $primary->tags()->syncWithoutDetaching($secondaryTags);
 
-            $secondary->update(['status' => TicketStatus::Closed]);
+            $this->updateStatus($secondary, TicketStatus::systemClosedStatus());
             $primary->update(['last_activity_at' => now()]);
 
             return $primary->fresh();

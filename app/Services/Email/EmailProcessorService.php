@@ -3,7 +3,6 @@
 namespace App\Services\Email;
 
 use App\Enums\MessageType;
-use App\Enums\TicketStatus;
 use App\Models\Attachment;
 use App\Models\Customer;
 use App\Models\Mailbox;
@@ -11,6 +10,7 @@ use App\Models\MailboxAlias;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use App\Services\TicketService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -122,8 +122,8 @@ class EmailProcessorService
 
     private function appendToTicket(Ticket $ticket, array $emailData, Customer $customer): Ticket
     {
-        if (in_array($ticket->status, [TicketStatus::Resolved, TicketStatus::Closed])) {
-            $this->ticketService->updateStatus($ticket, TicketStatus::Open);
+        if ($ticket->status()->firstOrFail()->is_closed) {
+            $this->ticketService->updateStatus($ticket, TicketStatus::defaultStatus());
         }
 
         $refs = $emailData['references'] ?? null;

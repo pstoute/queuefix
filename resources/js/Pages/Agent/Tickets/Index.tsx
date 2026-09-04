@@ -20,7 +20,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/Components/ui/table';
-import { cn } from '@/lib/utils';
 import { formatRelativeTime, formatDate } from '@/lib/hooks';
 import { useState } from 'react';
 import { Plus, Search, Inbox, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -36,20 +35,10 @@ interface TicketsIndexProps extends PageProps {
   };
   agents: User[];
   departments: Array<{ id: string; name: string }>;
-  counts: {
-    open: number;
-    pending: number;
-    unassigned: number;
-  };
+  statuses: TicketStatus[];
+  statusCounts: TicketStatus[];
+  unassignedCount: number;
 }
-
-const statusConfig = {
-  open: { label: 'Open', color: 'bg-green-500' },
-  pending: { label: 'Pending', color: 'bg-amber-500' },
-  on_hold: { label: 'On Hold', color: 'bg-gray-500' },
-  resolved: { label: 'Resolved', color: 'bg-blue-500' },
-  closed: { label: 'Closed', color: 'bg-gray-500' },
-};
 
 const priorityConfig = {
   low: { label: 'Low', variant: 'secondary' as const },
@@ -58,7 +47,15 @@ const priorityConfig = {
   urgent: { label: 'Urgent', variant: 'destructive' as const },
 };
 
-export default function TicketsIndex({ tickets, filters, agents, departments, counts }: TicketsIndexProps) {
+export default function TicketsIndex({
+  tickets,
+  filters,
+  agents,
+  departments,
+  statuses,
+  statusCounts,
+  unassignedCount,
+}: TicketsIndexProps) {
   const [searchQuery, setSearchQuery] = useState(filters.search || '');
 
   const handleFilterChange = (key: string, value: string) => {
@@ -112,29 +109,24 @@ export default function TicketsIndex({ tickets, filters, agents, departments, co
         </div>
 
         {/* Stats cards */}
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Open</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{counts.open}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{counts.pending}</div>
-            </CardContent>
-          </Card>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {statusCounts.map((status) => (
+            <Card key={status.id}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{status.name}</CardTitle>
+                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: status.color }} />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{status.tickets_count || 0}</div>
+              </CardContent>
+            </Card>
+          ))}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Unassigned</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{counts.unassigned}</div>
+              <div className="text-2xl font-bold">{unassignedCount}</div>
             </CardContent>
           </Card>
         </div>
@@ -166,11 +158,9 @@ export default function TicketsIndex({ tickets, filters, agents, departments, co
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="open">Open</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="on_hold">On Hold</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                  <SelectItem value="closed">Closed</SelectItem>
+                  {statuses.map((status) => (
+                    <SelectItem key={status.id} value={status.slug}>{status.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
 
@@ -271,10 +261,9 @@ export default function TicketsIndex({ tickets, filters, agents, departments, co
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
                             <div
-                              className={cn(
-                                'h-2 w-2 rounded-full shrink-0',
-                                statusConfig[ticket.status].color
-                              )}
+                              className="h-2 w-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: ticket.status?.color || '#6b7280' }}
+                              title={ticket.status?.name || 'Unknown status'}
                             />
                             <span className="text-muted-foreground">
                               #{ticket.ticket_number}

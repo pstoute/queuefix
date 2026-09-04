@@ -2,10 +2,10 @@
 
 namespace App\Services;
 
-use App\Enums\TicketStatus;
 use App\Models\SlaPolicy;
 use App\Models\SlaTimer;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use Carbon\Carbon;
 
 class SlaService
@@ -63,8 +63,8 @@ class SlaService
             return;
         }
 
-        $wasPaused = in_array($oldStatus, TicketStatus::pausedStatuses());
-        $shouldPause = in_array($newStatus, TicketStatus::pausedStatuses());
+        $wasPaused = $oldStatus->pauses_sla;
+        $shouldPause = $newStatus->pauses_sla;
 
         if (! $wasPaused && $shouldPause) {
             $timer->update(['paused_at' => now()]);
