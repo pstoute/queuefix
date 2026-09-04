@@ -32,7 +32,7 @@ class ProcessInboundEmailJob implements ShouldQueue
         }
 
         try {
-            $processor->processInboundEmail($this->emailData, $mailbox);
+            $processor->processInboundEmail($this->emailData, $mailbox, $this->correlationId());
         } catch (\Throwable $e) {
             Log::error('Failed to process inbound email', [
                 'mailbox_id' => $this->mailboxId,
@@ -42,5 +42,11 @@ class ProcessInboundEmailJob implements ShouldQueue
 
             throw $e;
         }
+    }
+
+    private function correlationId(): string
+    {
+        return $this->job?->getJobId()
+            ?? 'inbound-message:'.($this->emailData['message_id'] ?? sha1(serialize($this->emailData)));
     }
 }

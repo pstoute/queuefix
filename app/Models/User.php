@@ -61,6 +61,15 @@ class User extends Authenticatable
     }
 
     /**
+     * Get the ticket activities attributed to this user.
+     */
+    /** @return HasMany<TicketActivity, $this> */
+    public function ticketActivities(): HasMany
+    {
+        return $this->hasMany(TicketActivity::class, 'actor_id');
+    }
+
+    /**
      * Get the messages created by this user.
      */
     public function messages(): HasMany

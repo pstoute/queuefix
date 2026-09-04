@@ -3,11 +3,14 @@
 namespace App\Services;
 
 use App\Enums\MessageType;
+use App\Enums\TicketActivityActorType;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Customer;
+use App\Models\Department;
 use App\Models\Message;
 use App\Models\Setting;
+use App\Models\Tag;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -17,15 +20,29 @@ class TicketService
 {
     public function __construct(
         private SlaService $slaService,
+        private TicketActivityService $activityService,
     ) {}
 
-    public function createTicket(array $data, Customer $customer, ?string $mailboxId = null, ?string $departmentId = null): Ticket
-    {
+    public function createTicket(
+        array $data,
+        Customer $customer,
+        ?string $mailboxId = null,
+        ?string $departmentId = null,
+        ?string $activityCorrelationId = null,
+        ?TicketActivityActorType $activityActorType = null,
+    ): Ticket {
         $maxAttempts = 3;
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
-                return DB::transaction(function () use ($data, $customer, $mailboxId, $departmentId) {
+                return DB::transaction(function () use (
+                    $data,
+                    $customer,
+                    $mailboxId,
+                    $departmentId,
+                    $activityCorrelationId,
+                    $activityActorType,
+                ) {
                     $ticket = Ticket::create([
                         'subject' => $data['subject'],
                         'status' => TicketStatus::Open,
@@ -48,6 +65,11 @@ class TicketService
                     }
 
                     $this->slaService->initializeTimer($ticket);
+                    $this->activityService->recordTicketCreated(
+                        $ticket,
+                        $activityCorrelationId,
+                        $activityActorType,
+                    );
 
                     return $ticket;
                 });
@@ -87,46 +109,200 @@ class TicketService
         return $message;
     }
 
-    public function updateStatus(Ticket $ticket, TicketStatus $newStatus): Ticket
+    public function updateStatus(
+        Ticket $ticket,
+        TicketStatus $newStatus,
+        ?string $activityCorrelationId = null,
+        ?TicketActivityActorType $activityActorType = null,
+    ): Ticket {
+        return DB::transaction(function () use (
+            $ticket,
+            $newStatus,
+            $activityCorrelationId,
+            $activityActorType,
+        ) {
+            $ticket = Ticket::query()->lockForUpdate()->findOrFail($ticket->id);
+            $oldStatus = TicketStatus::from((string) $ticket->getRawOriginal('status'));
+
+            if ($oldStatus === $newStatus) {
+                return $ticket;
+            }
+
+            $ticket->update([
+                'status' => $newStatus,
+                'last_activity_at' => now(),
+            ]);
+
+            $this->slaService->handleStatusChange($ticket, $oldStatus, $newStatus);
+
+            if ($newStatus === TicketStatus::Resolved || $newStatus === TicketStatus::Closed) {
+                $this->slaService->recordResolution($ticket);
+            }
+
+            $this->activityService->recordStatusChanged(
+                $ticket,
+                $oldStatus->value,
+                $newStatus->value,
+                $newStatus->label(),
+                $activityCorrelationId,
+                $activityActorType,
+            );
+
+            return $ticket->fresh();
+        });
+    }
+
+    public function updatePriority(Ticket $ticket, TicketPriority $newPriority): Ticket
     {
-        $oldStatus = $ticket->status;
-        $ticket->update([
-            'status' => $newStatus,
-            'last_activity_at' => now(),
-        ]);
+        return DB::transaction(function () use ($ticket, $newPriority) {
+            $ticket = Ticket::query()->lockForUpdate()->findOrFail($ticket->id);
+            $oldPriority = TicketPriority::from((string) $ticket->getRawOriginal('priority'));
 
-        $this->slaService->handleStatusChange($ticket, $oldStatus, $newStatus);
+            if ($oldPriority === $newPriority) {
+                return $ticket;
+            }
 
-        if ($newStatus === TicketStatus::Resolved || $newStatus === TicketStatus::Closed) {
-            $this->slaService->recordResolution($ticket);
-        }
+            $ticket->update([
+                'priority' => $newPriority,
+                'last_activity_at' => now(),
+            ]);
+            $this->activityService->recordPriorityChanged(
+                $ticket,
+                $oldPriority->value,
+                $newPriority->value,
+                $newPriority->label(),
+            );
 
-        return $ticket->fresh();
+            return $ticket->fresh();
+        });
     }
 
     public function assignTicket(Ticket $ticket, ?User $agent): Ticket
     {
-        $ticket->update([
-            'assigned_to' => $agent?->id,
-            'last_activity_at' => now(),
-        ]);
+        return DB::transaction(function () use ($ticket, $agent) {
+            $ticket = Ticket::query()->lockForUpdate()->findOrFail($ticket->id);
+            $oldAssigneeId = $ticket->assigned_to;
 
-        return $ticket->fresh();
+            if ($oldAssigneeId === $agent?->id) {
+                return $ticket;
+            }
+
+            $ticket->update([
+                'assigned_to' => $agent?->id,
+                'last_activity_at' => now(),
+            ]);
+            $this->activityService->recordAssignmentChanged($ticket, $oldAssigneeId, $agent);
+
+            return $ticket->fresh();
+        });
+    }
+
+    public function updateDepartment(Ticket $ticket, ?Department $department): Ticket
+    {
+        return DB::transaction(function () use ($ticket, $department) {
+            $ticket = Ticket::query()->lockForUpdate()->findOrFail($ticket->id);
+            $relatedDepartment = $ticket->department;
+            $oldDepartment = $relatedDepartment instanceof Department ? $relatedDepartment : null;
+
+            if ($ticket->department_id === $department?->id) {
+                return $ticket;
+            }
+
+            $ticket->update([
+                'department_id' => $department?->id,
+                'last_activity_at' => now(),
+            ]);
+            $this->activityService->recordDepartmentChanged($ticket, $oldDepartment, $department);
+
+            return $ticket->fresh();
+        });
+    }
+
+    public function attachTag(Ticket $ticket, Tag $tag): Ticket
+    {
+        return DB::transaction(function () use ($ticket, $tag) {
+            $ticket = Ticket::query()->lockForUpdate()->findOrFail($ticket->id);
+            $before = $this->tagSnapshot($ticket);
+            $changes = $ticket->tags()->syncWithoutDetaching([$tag->id]);
+
+            if ($changes['attached'] !== []) {
+                $this->activityService->recordTagsChanged(
+                    $ticket,
+                    $tag,
+                    'added',
+                    $before,
+                    $this->tagSnapshot($ticket),
+                );
+            }
+
+            return $ticket->fresh();
+        });
+    }
+
+    public function detachTag(Ticket $ticket, Tag $tag): Ticket
+    {
+        return DB::transaction(function () use ($ticket, $tag) {
+            $ticket = Ticket::query()->lockForUpdate()->findOrFail($ticket->id);
+            $before = $this->tagSnapshot($ticket);
+
+            if ($ticket->tags()->detach($tag->id) > 0) {
+                $this->activityService->recordTagsChanged(
+                    $ticket,
+                    $tag,
+                    'removed',
+                    $before,
+                    $this->tagSnapshot($ticket),
+                );
+            }
+
+            return $ticket->fresh();
+        });
     }
 
     public function mergeTickets(Ticket $primary, Ticket $secondary): Ticket
     {
         return DB::transaction(function () use ($primary, $secondary) {
+            $tickets = Ticket::query()
+                ->whereIn('id', [$primary->id, $secondary->id])
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+            $primary = $tickets->get($primary->id);
+            $secondary = $tickets->get($secondary->id);
+
+            if (! $primary instanceof Ticket || ! $secondary instanceof Ticket) {
+                throw new \RuntimeException('Unable to lock both tickets for merge.');
+            }
+
             $secondary->messages()->update(['ticket_id' => $primary->id]);
 
             $secondaryTags = $secondary->tags()->pluck('tags.id')->toArray();
             $primary->tags()->syncWithoutDetaching($secondaryTags);
 
-            $secondary->update(['status' => TicketStatus::Closed]);
+            $secondaryStatus = TicketStatus::from((string) $secondary->getRawOriginal('status'));
+            $secondary->update([
+                'status' => TicketStatus::Closed,
+                'last_activity_at' => now(),
+            ]);
             $primary->update(['last_activity_at' => now()]);
+            $this->activityService->recordTicketMerged($primary, $secondary, $secondaryStatus->value);
 
             return $primary->fresh();
         });
+    }
+
+    /** @return array<int, array{id: string, name: string}> */
+    private function tagSnapshot(Ticket $ticket): array
+    {
+        return $ticket->tags()
+            ->orderBy('name')
+            ->get(['tags.id', 'tags.name'])
+            ->map(fn ($tag): array => [
+                'id' => (string) $tag->getKey(),
+                'name' => (string) $tag->getAttribute('name'),
+            ])
+            ->all();
     }
 
     public function getNextTicketNumber(): string

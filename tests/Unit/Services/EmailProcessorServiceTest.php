@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\TicketActivityActorType;
+use App\Enums\TicketActivityType;
 use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Mailbox;
@@ -7,13 +9,17 @@ use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Email\EmailProcessorService;
+use App\Services\TicketActivityService;
 use App\Services\TicketService;
 
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->ticketService = app(TicketService::class);
-    $this->emailProcessor = new EmailProcessorService($this->ticketService);
+    $this->emailProcessor = new EmailProcessorService(
+        $this->ticketService,
+        app(TicketActivityService::class),
+    );
 });
 
 test('creating new ticket from new sender', function () {
@@ -261,6 +267,14 @@ test('attachment processing creates attachment records', function () {
         'filename' => 'image.png',
         'mime_type' => 'image/png',
     ]);
+
+    $activities = $ticket->activities()
+        ->where('event_type', TicketActivityType::AttachmentAdded)
+        ->get();
+    expect($activities)->toHaveCount(2)
+        ->and($activities->every(
+            fn ($activity) => $activity->actor_type === TicketActivityActorType::System
+        ))->toBeTrue();
 });
 
 test('attachment without filename uses default name', function () {
