@@ -1,0 +1,37 @@
+# Attachment security
+
+QueueFix sends every inbound-email and web-upload attachment through the same
+`AttachmentService` before it writes an object or database row.
+
+## Limits and allowed formats
+
+The default limits are 10 files per message, 10 MB per file, and 25 MB for the
+combined message. They can be changed with the `ATTACHMENT_*` environment
+variables documented in `.env.example`.
+
+QueueFix accepts PDF, plain text, CSV, PNG, JPEG, GIF, WebP, and macro-free
+Office Open XML documents (`.docx`, `.xlsx`, and `.pptx`). It rejects generic
+archives, macro-enabled Office formats, executables, SVG, HTML, password-
+protected or active-content PDFs, MIME/extension mismatches, unsafe paths, and
+Office containers with embedded or active content. Office containers also have
+entry-count, expanded-size, and compression-ratio limits.
+
+Duplicate files are retained as separate attachment records and isolated
+storage objects. Their SHA-256 digests are identical, which makes duplicates
+auditable and permits a future retention-safe deduplication process without
+changing conversation semantics.
+
+## Scanning and delivery
+
+`ATTACHMENT_SCANNING_REQUIRED` defaults to `true`. The bundled scanner reports
+`pending`, so a deployment must bind `AttachmentScanner` to its malware scanner
+implementation before files become downloadable. A synchronous scanner may
+return `clean`, `pending`, or `rejected`:
+
+- `clean` files are available through authorization-checked download routes.
+- `pending` files remain private and return HTTP 423 until scanning completes.
+- `rejected` files retain safe metadata and a reason code, but no file object.
+
+The application never exposes storage paths or public-disk URLs. Downloads use
+`Content-Disposition: attachment`, `application/octet-stream`, `nosniff`, a
+sandboxing content security policy, and private/no-store caching.

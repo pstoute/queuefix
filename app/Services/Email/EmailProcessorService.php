@@ -4,35 +4,37 @@ namespace App\Services\Email;
 
 use App\Enums\MessageType;
 use App\Enums\TicketStatus;
-use App\Models\Attachment;
 use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\MailboxAlias;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Services\Attachments\AttachmentService;
 use App\Services\TicketService;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class EmailProcessorService
 {
     public function __construct(
         private TicketService $ticketService,
+        private AttachmentService $attachmentService,
     ) {}
 
     public function processInboundEmail(array $emailData, Mailbox $mailbox): Ticket
     {
-        $customer = $this->findOrCreateCustomer($emailData);
-        $existingTicket = $this->findExistingTicket($emailData);
+        return DB::transaction(function () use ($emailData, $mailbox): Ticket {
+            $customer = $this->findOrCreateCustomer($emailData);
+            $existingTicket = $this->findExistingTicket($emailData);
 
-        if ($existingTicket) {
-            return $this->appendToTicket($existingTicket, $emailData, $customer);
-        }
+            if ($existingTicket) {
+                return $this->appendToTicket($existingTicket, $emailData, $customer);
+            }
 
-        $departmentId = $this->resolveDepartment($emailData, $mailbox);
+            $departmentId = $this->resolveDepartment($emailData, $mailbox);
 
-        return $this->createNewTicket($emailData, $customer, $mailbox, $departmentId);
+            return $this->createNewTicket($emailData, $customer, $mailbox, $departmentId);
+        });
     }
 
     private function findOrCreateCustomer(array $emailData): Customer
@@ -149,20 +151,7 @@ class EmailProcessorService
 
     private function processAttachments(Message $message, array $attachments): void
     {
-        foreach ($attachments as $attachment) {
-            $filename = $attachment['filename'] ?? 'unnamed';
-            $path = 'attachments/'.$message->ticket_id.'/'.Str::uuid().'_'.$filename;
-
-            Storage::disk('local')->put($path, $attachment['content']);
-
-            Attachment::create([
-                'message_id' => $message->id,
-                'filename' => $filename,
-                'path' => $path,
-                'mime_type' => $attachment['mime_type'] ?? 'application/octet-stream',
-                'size' => strlen($attachment['content']),
-            ]);
-        }
+        $this->attachmentService->storeForMessage($message, $attachments);
     }
 
     public function buildOutboundHeaders(Ticket $ticket, ?Message $lastMessage = null): array

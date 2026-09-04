@@ -87,9 +87,12 @@ export interface Attachment {
     id: string;
     message_id: string;
     filename: string;
-    path: string;
     mime_type: string;
+    claimed_mime_type?: string;
     size: number;
+    sha256?: string;
+    scan_status: 'pending' | 'clean' | 'rejected';
+    rejection_reason?: string;
     url?: string;
 }
 

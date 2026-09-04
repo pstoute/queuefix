@@ -6,6 +6,8 @@
     "keywords": ["laravel", "framework"],
     "license": "MIT",
     "require": {
+        "ext-fileinfo": "*",
+        "ext-zip": "*",
         "php": "^8.2",
         "google/apiclient": "^2.0",
         "inertiajs/inertia-laravel": "^2.0",

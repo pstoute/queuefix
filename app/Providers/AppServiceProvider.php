@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Contracts\AttachmentScanner;
+use App\Services\Attachments\UnavailableAttachmentScanner;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
@@ -15,7 +17,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(AttachmentScanner::class, UnavailableAttachmentScanner::class);
     }
 
     /**
