@@ -28,7 +28,7 @@ test('admins can view the installed version and latest published release', funct
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('Settings/Updates')
-            ->where('updateCheck.installedVersion', 'v1.1.0')
+            ->where('updateCheck.installedVersion', 'v1.1.1')
             ->where('updateCheck.latestVersion', 'v1.2.0')
             ->where('updateCheck.updateAvailable', true)
             ->where('updateCheck.releaseUrl', 'https://github.com/pstoute/queuefix/releases/tag/v1.2.0')
@@ -57,7 +57,7 @@ test('the update check uses a cached release result', function () {
 test('the public version endpoint only exposes the installed version', function () {
     get(route('version.show'))
         ->assertOk()
-        ->assertExactJson(['version' => 'v1.1.0']);
+        ->assertExactJson(['version' => 'v1.1.1']);
 });
 
 test('agents cannot access administrative settings', function () {
