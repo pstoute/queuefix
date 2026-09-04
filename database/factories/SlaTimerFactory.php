@@ -13,12 +13,18 @@ class SlaTimerFactory extends Factory
 {
     public function definition(): array
     {
+        $startedAt = now();
+
         return [
             'ticket_id' => Ticket::factory(),
             'sla_policy_id' => SlaPolicy::factory(),
-            'first_response_due_at' => now()->addHours(4),
+            'first_response_started_at' => $startedAt,
+            'first_response_budget_seconds' => 4 * 3600,
+            'first_response_due_at' => $startedAt->copy()->addHours(4),
             'first_responded_at' => null,
-            'resolution_due_at' => now()->addHours(24),
+            'resolution_started_at' => $startedAt,
+            'resolution_budget_seconds' => 24 * 3600,
+            'resolution_due_at' => $startedAt->copy()->addHours(24),
             'resolved_at' => null,
             'paused_at' => null,
             'total_paused_seconds' => 0,

@@ -829,12 +829,6 @@ parameters:
 			path: app/Services/SlaService.php
 
 		-
-			message: '#^Method App\\Services\\SlaService\:\:getSlaStatus\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/SlaService.php
-
-		-
 			message: '#^Parameter \#1 \$timer of method App\\Services\\SlaService\:\:getEffectiveTime\(\) expects App\\Models\\SlaTimer, Illuminate\\Database\\Eloquent\\Model given\.$#'
 			identifier: argument.type
 			count: 1

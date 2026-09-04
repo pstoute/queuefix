@@ -9,8 +9,10 @@ use App\Http\Controllers\Controller;
 use App\Jobs\SendEmailReplyJob;
 use App\Models\Customer;
 use App\Models\Department;
+use App\Models\SlaTimer;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\SlaService;
 use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,6 +23,7 @@ class TicketController extends Controller
 {
     public function __construct(
         private TicketService $ticketService,
+        private SlaService $slaService,
     ) {}
 
     public function index(Request $request): Response
@@ -90,6 +93,12 @@ class TicketController extends Controller
                 $q->with(['sender', 'attachments'])->orderBy('created_at', 'asc');
             },
         ]);
+
+        $slaTimer = $ticket->slaTimer;
+        $ticket->setAttribute(
+            'sla_status',
+            $this->slaService->getSlaStatus($slaTimer instanceof SlaTimer ? $slaTimer : null),
+        );
 
         return Inertia::render('Agent/Tickets/Show', [
             'ticket' => $ticket,

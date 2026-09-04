@@ -1,5 +1,5 @@
 import { Head, router, useForm } from '@inertiajs/react';
-import { PageProps, Ticket, User, TicketStatus, TicketPriority } from '@/types';
+import { PageProps, Ticket, User, TicketStatus, TicketPriority, SlaClockStatus } from '@/types';
 import AgentLayout from '@/Layouts/AgentLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Button } from '@/Components/ui/button';
@@ -118,36 +118,36 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
       .slice(0, 2);
   };
 
-  const getSlaStatus = () => {
-    if (!ticket.sla_timer) return null;
+  const getActiveSlaStatus = (): SlaClockStatus | null => {
+    if (!ticket.sla_status) return null;
 
-    if (ticket.sla_timer.first_response_breached || ticket.sla_timer.resolution_breached) {
-      return { label: 'Breached', color: 'text-red-600', icon: AlertCircle };
+    const clocks = [ticket.sla_status.first_response, ticket.sla_status.resolution];
+    const breached = clocks.find((clock) => clock.state === 'breached');
+    if (breached) return breached;
+
+    if (!['met', 'none'].includes(ticket.sla_status.first_response.state)) {
+      return ticket.sla_status.first_response;
     }
 
-    if (ticket.sla_timer.first_responded_at && ticket.sla_timer.resolved_at) {
-      return { label: 'Met', color: 'text-green-600', icon: CheckCircle };
-    }
-
-    // Calculate time remaining for next due date
-    const now = new Date();
-    const nextDue = ticket.sla_timer.first_response_due_at && !ticket.sla_timer.first_responded_at
-      ? new Date(ticket.sla_timer.first_response_due_at)
-      : ticket.sla_timer.resolution_due_at
-      ? new Date(ticket.sla_timer.resolution_due_at)
-      : null;
-
-    if (nextDue) {
-      const hoursRemaining = Math.max(0, (nextDue.getTime() - now.getTime()) / (1000 * 60 * 60));
-      if (hoursRemaining < 2) {
-        return { label: 'Due Soon', color: 'text-amber-600', icon: Clock };
-      }
-    }
-
-    return { label: 'On Track', color: 'text-blue-600', icon: Clock };
+    return ticket.sla_status.resolution.state === 'none' ? null : ticket.sla_status.resolution;
   };
 
-  const slaStatus = getSlaStatus();
+  const slaStatus = getActiveSlaStatus();
+  const slaPresentation = slaStatus ? {
+    none: { label: 'Not configured', color: 'text-muted-foreground', icon: Clock },
+    on_track: { label: 'On Track', color: 'text-green-600', icon: Clock },
+    approaching: { label: 'Approaching', color: 'text-amber-600', icon: AlertCircle },
+    paused: { label: 'Paused', color: 'text-muted-foreground', icon: Clock },
+    met: { label: 'Met', color: 'text-green-600', icon: CheckCircle },
+    breached: { label: 'Breached', color: 'text-red-600', icon: AlertCircle },
+  }[slaStatus.state] : null;
+
+  const formatRemaining = (seconds: number | null) => {
+    if (seconds === null) return '—';
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.ceil(seconds / 60)}m`;
+    return `${Math.ceil(seconds / 3600)}h`;
+  };
 
   return (
     <AgentLayout>
@@ -461,7 +461,7 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                 </Card>
 
                 {/* SLA Timer */}
-                {ticket.sla_timer && slaStatus && (
+                {ticket.sla_timer && slaStatus && slaPresentation && (
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-base flex items-center gap-2">
@@ -472,41 +472,54 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                     <CardContent className="space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">Status</span>
-                        <div className={cn('flex items-center gap-1', slaStatus.color)}>
-                          <slaStatus.icon className="h-4 w-4" />
-                          <span className="text-sm font-medium">{slaStatus.label}</span>
+                        <div className={cn('flex items-center gap-1', slaPresentation.color)}>
+                          <slaPresentation.icon className="h-4 w-4" />
+                          <span className="text-sm font-medium">{slaPresentation.label}</span>
                         </div>
                       </div>
+                      {slaStatus.percent_remaining !== null && !['met', 'breached'].includes(slaStatus.state) && (
+                        <p className="text-xs text-muted-foreground">
+                          {slaStatus.percent_remaining}% remaining · warning at {slaStatus.warning_percent}%
+                        </p>
+                      )}
 
                       <Separator />
 
-                      {ticket.sla_timer.first_response_due_at && (
+                      {ticket.sla_status?.first_response.due_at && (
                         <div className="space-y-1">
                           <div className="text-xs text-muted-foreground">First Response</div>
                           {ticket.sla_timer.first_responded_at ? (
                             <div className="text-sm">
-                              <CheckCircle className="inline h-3 w-3 text-green-600 mr-1" />
-                              Met {formatRelativeTime(ticket.sla_timer.first_responded_at)}
+                              {ticket.sla_status.first_response.state === 'breached' ? (
+                                <AlertCircle className="inline h-3 w-3 text-red-600 mr-1" />
+                              ) : (
+                                <CheckCircle className="inline h-3 w-3 text-green-600 mr-1" />
+                              )}
+                              {ticket.sla_status.first_response.state === 'breached' ? 'Breached' : 'Met'} {formatRelativeTime(ticket.sla_timer.first_responded_at)}
                             </div>
                           ) : (
                             <div className="text-sm">
-                              Due {formatRelativeTime(ticket.sla_timer.first_response_due_at)}
+                              Due {formatRelativeTime(ticket.sla_status.first_response.due_at)} · {formatRemaining(ticket.sla_status.first_response.remaining_seconds)} remaining
                             </div>
                           )}
                         </div>
                       )}
 
-                      {ticket.sla_timer.resolution_due_at && (
+                      {ticket.sla_status?.resolution.due_at && (
                         <div className="space-y-1">
                           <div className="text-xs text-muted-foreground">Resolution</div>
                           {ticket.sla_timer.resolved_at ? (
                             <div className="text-sm">
-                              <CheckCircle className="inline h-3 w-3 text-green-600 mr-1" />
-                              Met {formatRelativeTime(ticket.sla_timer.resolved_at)}
+                              {ticket.sla_status.resolution.state === 'breached' ? (
+                                <AlertCircle className="inline h-3 w-3 text-red-600 mr-1" />
+                              ) : (
+                                <CheckCircle className="inline h-3 w-3 text-green-600 mr-1" />
+                              )}
+                              {ticket.sla_status.resolution.state === 'breached' ? 'Breached' : 'Met'} {formatRelativeTime(ticket.sla_timer.resolved_at)}
                             </div>
                           ) : (
                             <div className="text-sm">
-                              Due {formatRelativeTime(ticket.sla_timer.resolution_due_at)}
+                              Due {formatRelativeTime(ticket.sla_status.resolution.due_at)} · {formatRemaining(ticket.sla_status.resolution.remaining_seconds)} remaining
                             </div>
                           )}
                         </div>
