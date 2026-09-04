@@ -1,12 +1,6 @@
 parameters:
 	ignoreErrors:
 		-
-			message: '#^Method App\\Enums\\TicketStatus\:\:pausedStatuses\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Enums/TicketStatus.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
 			identifier: property.notFound
 			count: 1
@@ -517,12 +511,6 @@ parameters:
 			path: app/Policies/TicketPolicy.php
 
 		-
-			message: '#^Call to function in_array\(\) with ''closed''\|''on_hold''\|''open''\|''pending''\|''resolved'' and array\{App\\Enums\\TicketStatus\:\:Resolved, App\\Enums\\TicketStatus\:\:Closed\} will always evaluate to false\.$#'
-			identifier: function.impossibleType
-			count: 1
-			path: app/Services/Email/EmailProcessorService.php
-
-		-
 			message: '#^Method App\\Services\\Email\\EmailProcessorService\:\:appendToTicket\(\) has parameter \$emailData with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -861,11 +849,5 @@ parameters:
 		-
 			message: '#^Method App\\Services\\TicketService\:\:createTicket\(\) has parameter \$data with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/TicketService.php
-
-		-
-			message: '#^Parameter \#2 \$oldStatus of method App\\Services\\SlaService\:\:handleStatusChange\(\) expects App\\Enums\\TicketStatus, string given\.$#'
-			identifier: argument.type
 			count: 1
 			path: app/Services/TicketService.php

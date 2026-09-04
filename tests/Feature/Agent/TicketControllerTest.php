@@ -2,11 +2,11 @@
 
 use App\Enums\MessageType;
 use App\Enums\TicketPriority;
-use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Setting;
 use App\Models\Tag;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use App\Models\User;
 
 use function Pest\Laravel\actingAs;
@@ -18,6 +18,10 @@ beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->user = User::factory()->create();
+    $this->openStatus = TicketStatus::defaultStatus();
+    $this->pendingStatus = $this->ticketStatusAt(20);
+    $this->resolvedStatus = $this->ticketStatusAt(40);
+    $this->closedStatus = $this->ticketStatusAt(50);
 });
 
 test('ticket index page renders for authenticated user', function () {
@@ -30,7 +34,9 @@ test('ticket index page renders for authenticated user', function () {
             ->has('tickets')
             ->has('filters')
             ->has('agents')
-            ->has('counts')
+            ->has('statuses', 5)
+            ->has('statusCounts', 5)
+            ->has('unassignedCount')
         );
 });
 
@@ -43,15 +49,16 @@ test('ticket index returns 302 for unauthenticated user', function () {
 test('ticket list filtering by status', function () {
     actingAs($this->user);
 
-    $openTicket = Ticket::factory()->create(['status' => TicketStatus::Open]);
-    $pendingTicket = Ticket::factory()->create(['status' => TicketStatus::Pending]);
+    $openTicket = Ticket::factory()->create(['ticket_status_id' => $this->openStatus->id]);
+    $pendingTicket = Ticket::factory()->create(['ticket_status_id' => $this->pendingStatus->id]);
 
-    get(route('agent.tickets.index', ['status' => TicketStatus::Open->value]))
+    get(route('agent.tickets.index', ['status' => $this->openStatus->slug]))
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('Agent/Tickets/Index')
-            ->where('filters.status', TicketStatus::Open->value)
+            ->where('filters.status', $this->openStatus->slug)
             ->has('tickets.data', 1)
+            ->where('tickets.data.0.id', $openTicket->id)
         );
 });
 
@@ -173,7 +180,7 @@ test('creating a new ticket', function () {
 
     $this->assertDatabaseHas('tickets', [
         'subject' => 'Test ticket',
-        'status' => TicketStatus::Open->value,
+        'ticket_status_id' => $this->openStatus->id,
         'priority' => TicketPriority::Normal->value,
     ]);
 
@@ -274,17 +281,17 @@ test('adding an internal note', function () {
 test('changing ticket status', function () {
     actingAs($this->user);
 
-    $ticket = Ticket::factory()->create(['status' => TicketStatus::Open]);
+    $ticket = Ticket::factory()->create(['ticket_status_id' => $this->openStatus->id]);
 
     patch(route('agent.tickets.status', $ticket), [
-        'status' => TicketStatus::Resolved->value,
+        'status' => $this->resolvedStatus->slug,
     ])
         ->assertRedirect()
         ->assertSessionHas('success');
 
     $this->assertDatabaseHas('tickets', [
         'id' => $ticket->id,
-        'status' => TicketStatus::Resolved->value,
+        'ticket_status_id' => $this->resolvedStatus->id,
     ]);
 });
 
@@ -351,7 +358,7 @@ test('merging tickets moves messages', function () {
 
     $this->assertDatabaseHas('tickets', [
         'id' => $secondaryTicket->id,
-        'status' => TicketStatus::Closed->value,
+        'ticket_status_id' => $this->closedStatus->id,
     ]);
 });
 

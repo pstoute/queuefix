@@ -6,6 +6,7 @@ use App\Enums\MessageType;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,14 +23,29 @@ class CustomerTicketController extends Controller
     {
         $customer = $this->getCustomer($request);
 
-        $tickets = Ticket::where('customer_id', $customer->id)
-            ->with('assignee')
-            ->orderBy('last_activity_at', 'desc')
-            ->paginate(15);
+        $query = Ticket::where('customer_id', $customer->id)
+            ->with(['assignee', 'status'])
+            ->orderBy('last_activity_at', 'desc');
+
+        if ($request->filled('status')) {
+            $query->whereHas('status', function ($statusQuery) use ($request): void {
+                $statusQuery
+                    ->where('is_customer_visible', true)
+                    ->where('slug', $request->status);
+            });
+        }
+
+        $tickets = $query->paginate(15)->withQueryString();
+        $tickets->getCollection()->each($this->prepareForCustomer(...));
 
         return Inertia::render('Customer/Tickets/Index', [
             'tickets' => $tickets,
             'customer' => $customer,
+            'statuses' => TicketStatus::query()
+                ->customerVisible()
+                ->ordered()
+                ->get(['id', 'name', 'slug', 'color', 'is_closed']),
+            'filters' => $request->only('status'),
         ]);
     }
 
@@ -47,7 +63,10 @@ class CustomerTicketController extends Controller
                     ->with(['sender', 'attachments'])
                     ->orderBy('created_at', 'asc');
             },
+            'status',
         ]);
+
+        $this->prepareForCustomer($ticket);
 
         return Inertia::render('Customer/Tickets/Show', [
             'ticket' => $ticket,
@@ -61,6 +80,10 @@ class CustomerTicketController extends Controller
 
         if ($ticket->customer_id !== $customer->id) {
             abort(403);
+        }
+
+        if ($ticket->status()->firstOrFail()->is_closed) {
+            abort(422, 'Closed tickets cannot receive replies.');
         }
 
         $validated = $request->validate([
@@ -81,5 +104,26 @@ class CustomerTicketController extends Controller
     private function getCustomer(Request $request): Customer
     {
         return Customer::findOrFail($request->user('customer')->id);
+    }
+
+    private function prepareForCustomer(Ticket $ticket): void
+    {
+        $status = $ticket->status;
+        $customerStatus = $status && $status->is_customer_visible
+            ? [
+                'name' => $status->name,
+                'slug' => $status->slug,
+                'color' => $status->color,
+                'is_closed' => $status->is_closed,
+            ]
+            : [
+                'name' => $status?->is_closed ? 'Closed' : 'In Progress',
+                'color' => '#6b7280',
+                'is_closed' => (bool) $status?->is_closed,
+            ];
+
+        $ticket->setAttribute('customer_status', $customerStatus);
+        $ticket->makeHidden(['ticket_status_id']);
+        $ticket->unsetRelation('status');
     }
 }

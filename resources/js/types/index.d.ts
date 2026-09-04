@@ -1,4 +1,3 @@
-export type TicketStatus = 'open' | 'pending' | 'on_hold' | 'resolved' | 'closed';
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type UserRole = 'admin' | 'agent';
 export type MessageType = 'reply' | 'internal_note';
@@ -39,6 +38,30 @@ export interface Department {
     updated_at?: string;
 }
 
+export interface TicketStatus {
+    id: string;
+    name: string;
+    slug: string;
+    color: string;
+    icon?: string | null;
+    sort_order: number;
+    is_default: boolean;
+    is_closed: boolean;
+    is_system: boolean;
+    is_customer_visible: boolean;
+    tickets_count?: number;
+    deleted_at?: string | null;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface CustomerTicketStatus {
+    name: string;
+    slug?: string;
+    color: string;
+    is_closed: boolean;
+}
+
 export interface MailboxAlias {
     id: string;
     mailbox_id: string;
@@ -51,13 +74,17 @@ export interface Ticket {
     id: string;
     ticket_number: string;
     subject: string;
-    status: TicketStatus;
+    ticket_status_id: string;
+    status?: TicketStatus;
+    customer_status?: CustomerTicketStatus;
     priority: TicketPriority;
     customer_id: string;
     assigned_to?: string;
     mailbox_id?: string;
     department_id?: string;
     last_activity_at: string;
+    resolved_at?: string | null;
+    closed_at?: string | null;
     created_at: string;
     updated_at: string;
     customer?: Customer;
