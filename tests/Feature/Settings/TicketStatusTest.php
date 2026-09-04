@@ -110,10 +110,10 @@ test('changing the default is atomic and the last default cannot be unset', func
 });
 
 test('the database guard rejects concurrent-style duplicate defaults', function () {
+    expect(TicketStatus::query()->where('is_default', true)->count())->toBe(1);
+
     expect(fn () => TicketStatus::factory()->create(['is_default' => true]))
         ->toThrow(QueryException::class);
-
-    expect(TicketStatus::query()->where('is_default', true)->count())->toBe(1);
 });
 
 test('custom statuses can be archived and restored when unreferenced', function () {
