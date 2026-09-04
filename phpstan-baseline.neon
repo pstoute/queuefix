@@ -863,9 +863,3 @@ parameters:
 			identifier: missingType.iterableValue
 			count: 1
 			path: app/Services/TicketService.php
-
-		-
-			message: '#^Parameter \#2 \$oldStatus of method App\\Services\\SlaService\:\:handleStatusChange\(\) expects App\\Enums\\TicketStatus, string given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Services/TicketService.php

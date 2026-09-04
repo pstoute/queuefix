@@ -9,11 +9,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 
 class Ticket extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory, HasUuids, SoftDeletes;
 
     /**
      * The attributes that are mass assignable.
@@ -147,5 +148,16 @@ class Ticket extends Model
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(Tag::class, 'tag_ticket');
+    }
+
+    /**
+     * Get the immutable activity history for the ticket.
+     */
+    /** @return HasMany<TicketActivity, $this> */
+    public function activities(): HasMany
+    {
+        return $this->hasMany(TicketActivity::class)
+            ->orderBy('created_at')
+            ->orderBy('id');
     }
 }

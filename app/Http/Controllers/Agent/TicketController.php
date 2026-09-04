@@ -86,6 +86,7 @@ class TicketController extends Controller
             'tags',
             'mailbox',
             'slaTimer.slaPolicy',
+            'activities.actor',
             'messages' => function ($q) {
                 $q->with(['sender', 'attachments'])->orderBy('created_at', 'asc');
             },
@@ -170,7 +171,7 @@ class TicketController extends Controller
             'priority' => 'required|string|in:'.implode(',', array_column(TicketPriority::cases(), 'value')),
         ]);
 
-        $ticket->update(['priority' => TicketPriority::from($validated['priority'])]);
+        $this->ticketService->updatePriority($ticket, TicketPriority::from($validated['priority']));
 
         return back()->with('success', 'Priority updated.');
     }

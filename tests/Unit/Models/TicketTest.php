@@ -183,14 +183,15 @@ test('ticket without mailbox has null mailbox_id', function () {
     expect($ticket->mailbox)->toBeNull();
 });
 
-test('deleting ticket with messages', function () {
+test('soft deleting a ticket preserves its conversation', function () {
     $ticket = Ticket::factory()->create();
     Message::factory()->count(3)->create(['ticket_id' => $ticket->id]);
 
     $ticket->delete();
 
-    // Messages are cascade deleted via foreign key constraint
-    expect(Message::count())->toBe(0);
+    expect(Ticket::find($ticket->id))->toBeNull()
+        ->and(Ticket::withTrashed()->find($ticket->id))->not->toBeNull()
+        ->and(Message::where('ticket_id', $ticket->id)->count())->toBe(3);
 });
 
 test('ticket can be queried by status', function () {

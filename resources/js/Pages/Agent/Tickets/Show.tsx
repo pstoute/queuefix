@@ -40,6 +40,7 @@ import {
   Tag,
   Plus,
   X,
+  History,
 } from 'lucide-react';
 
 interface TicketShowProps extends PageProps {
@@ -567,6 +568,35 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                     </CardContent>
                   </Card>
                 )}
+
+                {/* Activity history */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <History className="h-4 w-4" />
+                      Activity History
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {ticket.activities && ticket.activities.length > 0 ? (
+                      <ol className="relative border-l space-y-4 ml-1">
+                        {ticket.activities.map((activity) => (
+                          <li key={activity.id} className="ml-4">
+                            <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border bg-background" />
+                            <p className="text-sm font-medium">{activity.summary}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {activity.actor?.name || (activity.actor_type === 'customer' ? 'Customer' : 'System')}
+                              {' · '}
+                              {formatDateTime(activity.created_at)}
+                            </p>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No activity recorded yet.</p>
+                    )}
+                  </CardContent>
+                </Card>
 
                 {/* Dates */}
                 <Card>

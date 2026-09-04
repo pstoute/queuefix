@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Ticket;
 use App\Services\TicketService;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -47,7 +48,15 @@ class CustomerTicketController extends Controller
                     ->with(['sender', 'attachments'])
                     ->orderBy('created_at', 'asc');
             },
+            'activities' => function ($q) {
+                $q->customerVisible()
+                    ->select(['id', 'ticket_id', 'event_type', 'summary', 'created_at']);
+            },
         ]);
+
+        $ticket->activities->each(function (Model $activity): void {
+            $activity->makeHidden(['ticket_id']);
+        });
 
         return Inertia::render('Customer/Tickets/Show', [
             'ticket' => $ticket,

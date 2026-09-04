@@ -9,6 +9,7 @@ import { Textarea } from '@/Components/ui/textarea';
 import { Separator } from '@/Components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/Components/ui/avatar';
 import { format } from 'date-fns';
+import { History } from 'lucide-react';
 
 interface CustomerTicketShowProps {
     ticket: Ticket;
@@ -149,6 +150,33 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
                         })
                     )}
                 </div>
+
+                {/* Customer-safe activity history */}
+                {ticket.activities && ticket.activities.length > 0 && (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <History className="h-4 w-4" />
+                                Ticket History
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <ol className="relative ml-1 space-y-4 border-l">
+                                {ticket.activities.map((activity) => (
+                                    <li key={activity.id} className="ml-4">
+                                        <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border bg-white" />
+                                        <p className="text-sm font-medium text-gray-900">
+                                            {activity.summary}
+                                        </p>
+                                        <p className="text-xs text-gray-500">
+                                            {format(new Date(activity.created_at), 'MMM d, yyyy at h:mm a')}
+                                        </p>
+                                    </li>
+                                ))}
+                            </ol>
+                        </CardContent>
+                    </Card>
+                )}
 
                 {/* Reply Form */}
                 {ticket.status !== 'closed' && (

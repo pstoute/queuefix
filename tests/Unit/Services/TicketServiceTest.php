@@ -10,13 +10,14 @@ use App\Models\Setting;
 use App\Models\Tag;
 use App\Models\User;
 use App\Services\SlaService;
+use App\Services\TicketActivityService;
 use App\Services\TicketService;
 
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->slaService = Mockery::mock(SlaService::class);
-    $this->ticketService = new TicketService($this->slaService);
+    $this->ticketService = new TicketService($this->slaService, app(TicketActivityService::class));
 });
 
 test('creating a ticket generates ticket number', function () {

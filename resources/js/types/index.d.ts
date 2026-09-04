@@ -67,6 +67,24 @@ export interface Ticket {
     tags?: Tag[];
     mailbox?: Mailbox;
     sla_timer?: SlaTimer;
+    activities?: TicketActivity[];
+}
+
+export type TicketActivityActorType = 'user' | 'customer' | 'system';
+
+export interface TicketActivity {
+    id: string;
+    ticket_id?: string;
+    actor_id?: string | null;
+    actor_type?: TicketActivityActorType;
+    event_type: string;
+    before?: Record<string, unknown> | null;
+    after?: Record<string, unknown> | null;
+    summary: string;
+    correlation_id?: string;
+    customer_visible?: boolean;
+    created_at: string;
+    actor?: User | null;
 }
 
 export interface Message {
