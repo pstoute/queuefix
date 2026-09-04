@@ -5,6 +5,7 @@ use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Setting;
+use App\Models\SlaTimer;
 use App\Models\Tag;
 use App\Models\Ticket;
 use App\Models\User;
@@ -220,6 +221,28 @@ test('viewing a ticket detail', function () {
             ->has('statuses')
             ->has('priorities')
             ->where('ticket.id', $ticket->id)
+        );
+});
+
+test('ticket detail receives authoritative SLA status payload', function () {
+    actingAs($this->user);
+
+    $ticket = Ticket::factory()->create();
+    SlaTimer::factory()->create([
+        'ticket_id' => $ticket->id,
+        'first_response_started_at' => now(),
+        'first_response_budget_seconds' => 14400,
+        'first_response_due_at' => now()->addHours(4),
+    ]);
+
+    get(route('agent.tickets.show', $ticket))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('ticket.sla_status.first_response.state', 'on_track')
+            ->where('ticket.sla_status.first_response.original_budget_seconds', 14400)
+            ->where('ticket.sla_status.first_response.warning_percent', 25)
+            ->has('ticket.sla_status.first_response.remaining_seconds')
+            ->has('ticket.sla_status.first_response.due_at')
         );
 });
 

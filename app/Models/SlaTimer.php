@@ -7,6 +7,20 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property \Illuminate\Support\Carbon|null $first_response_started_at
+ * @property int|null $first_response_budget_seconds
+ * @property \Illuminate\Support\Carbon|null $first_response_due_at
+ * @property \Illuminate\Support\Carbon|null $first_responded_at
+ * @property \Illuminate\Support\Carbon|null $resolution_started_at
+ * @property int|null $resolution_budget_seconds
+ * @property \Illuminate\Support\Carbon|null $resolution_due_at
+ * @property \Illuminate\Support\Carbon|null $resolved_at
+ * @property \Illuminate\Support\Carbon|null $paused_at
+ * @property int $total_paused_seconds
+ * @property bool $first_response_breached
+ * @property bool $resolution_breached
+ */
 class SlaTimer extends Model
 {
     use HasFactory, HasUuids;
@@ -19,8 +33,12 @@ class SlaTimer extends Model
     protected $fillable = [
         'ticket_id',
         'sla_policy_id',
+        'first_response_started_at',
+        'first_response_budget_seconds',
         'first_response_due_at',
         'first_responded_at',
+        'resolution_started_at',
+        'resolution_budget_seconds',
         'resolution_due_at',
         'resolved_at',
         'paused_at',
@@ -37,8 +55,12 @@ class SlaTimer extends Model
     protected function casts(): array
     {
         return [
+            'first_response_started_at' => 'datetime',
+            'first_response_budget_seconds' => 'integer',
             'first_response_due_at' => 'datetime',
             'first_responded_at' => 'datetime',
+            'resolution_started_at' => 'datetime',
+            'resolution_budget_seconds' => 'integer',
             'resolution_due_at' => 'datetime',
             'resolved_at' => 'datetime',
             'paused_at' => 'datetime',

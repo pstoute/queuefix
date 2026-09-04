@@ -67,6 +67,7 @@ export interface Ticket {
     tags?: Tag[];
     mailbox?: Mailbox;
     sla_timer?: SlaTimer;
+    sla_status?: SlaStatus;
 }
 
 export interface Message {
@@ -137,8 +138,12 @@ export interface SlaTimer {
     id: string;
     ticket_id: string;
     sla_policy_id: string;
+    first_response_started_at?: string;
+    first_response_budget_seconds?: number;
     first_response_due_at?: string;
     first_responded_at?: string;
+    resolution_started_at?: string;
+    resolution_budget_seconds?: number;
     resolution_due_at?: string;
     resolved_at?: string;
     paused_at?: string;
@@ -146,6 +151,24 @@ export interface SlaTimer {
     first_response_breached: boolean;
     resolution_breached: boolean;
     sla_policy?: SlaPolicy;
+}
+
+export type SlaState = 'none' | 'on_track' | 'approaching' | 'paused' | 'met' | 'breached';
+
+export interface SlaClockStatus {
+    state: SlaState;
+    color: 'gray' | 'green' | 'yellow' | 'red';
+    due_at: string | null;
+    started_at: string | null;
+    remaining_seconds: number | null;
+    original_budget_seconds: number | null;
+    percent_remaining: number | null;
+    warning_percent: number;
+}
+
+export interface SlaStatus {
+    first_response: SlaClockStatus;
+    resolution: SlaClockStatus;
 }
 
 export interface Setting {

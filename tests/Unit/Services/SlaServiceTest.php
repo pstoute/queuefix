@@ -7,11 +7,16 @@ use App\Models\SlaPolicy;
 use App\Models\SlaTimer;
 use App\Models\Ticket;
 use App\Services\SlaService;
+use Carbon\Carbon;
 
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->slaService = new SlaService;
+});
+
+afterEach(function () {
+    Carbon::setTestNow();
 });
 
 test('initializing SLA timer with matching policy', function () {
@@ -29,7 +34,11 @@ test('initializing SLA timer with matching policy', function () {
     expect($timer)->not->toBeNull();
     expect($timer->ticket_id)->toBe($ticket->id);
     expect($timer->sla_policy_id)->toBe($policy->id);
+    expect($timer->first_response_started_at)->not->toBeNull();
+    expect($timer->first_response_budget_seconds)->toBe(4 * 3600);
     expect($timer->first_response_due_at)->not->toBeNull();
+    expect($timer->resolution_started_at)->not->toBeNull();
+    expect($timer->resolution_budget_seconds)->toBe(24 * 3600);
     expect($timer->resolution_due_at)->not->toBeNull();
 });
 
@@ -329,5 +338,154 @@ test('paused time is excluded from SLA calculation', function () {
     // 2 hours of paused time means we effectively have 3 hours
     $status = $this->slaService->getSlaStatus($timer);
 
-    expect($status['resolution']['status'])->toBe('paused');
+    expect($status['resolution']['state'])->toBe('paused');
 });
+
+test('four hour clock is on track at fifty percent remaining', function () {
+    $start = Carbon::parse('2026-09-04 08:00:00 UTC');
+    Carbon::setTestNow($start->copy()->addHours(2));
+    $timer = fourHourTimer($start);
+
+    $status = $this->slaService->getSlaStatus($timer)['first_response'];
+
+    expect($status['state'])->toBe('on_track')
+        ->and($status['remaining_seconds'])->toBe(7200)
+        ->and($status['original_budget_seconds'])->toBe(14400)
+        ->and($status['percent_remaining'])->toBe(50.0)
+        ->and($status['warning_percent'])->toBe(25.0);
+});
+
+test('warning threshold uses exact frozen-time boundaries', function (int $percent, string $expectedState) {
+    $start = Carbon::parse('2026-09-04 08:00:00 UTC');
+    $remainingSeconds = (int) (14400 * ($percent / 100));
+    Carbon::setTestNow($start->copy()->addSeconds(14400 - $remainingSeconds));
+    $timer = fourHourTimer($start);
+
+    $status = $this->slaService->getSlaStatus($timer)['first_response'];
+
+    expect($status['state'])->toBe($expectedState)
+        ->and($status['remaining_seconds'])->toBe($remainingSeconds)
+        ->and($status['percent_remaining'])->toBe((float) $percent);
+})->with([
+    '26 percent' => [26, 'on_track'],
+    '25 percent' => [25, 'approaching'],
+    '24 percent' => [24, 'approaching'],
+]);
+
+test('approaching regression uses original budget instead of the remaining interval twice', function () {
+    $start = Carbon::parse('2026-09-04 08:00:00 UTC');
+    Carbon::setTestNow($start->copy()->addSeconds(10800));
+    $timer = fourHourTimer($start);
+
+    $status = $this->slaService->getSlaStatus($timer)['first_response'];
+    $legacyRemainingSeconds = now()->diffInSeconds($timer->first_response_due_at, false);
+    $legacyTotalSeconds = $timer->first_response_due_at->diffInSeconds(now());
+    $legacyPercentMagnitude = (abs($legacyRemainingSeconds) / abs($legacyTotalSeconds)) * 100;
+
+    expect($legacyPercentMagnitude)->toBe(100.0)
+        ->and($status['percent_remaining'])->toBe(25.0)
+        ->and($status['state'])->toBe('approaching');
+});
+
+test('zero and overdue clocks are breached', function (int $secondsAfterDue) {
+    $start = Carbon::parse('2026-09-04 08:00:00 UTC');
+    Carbon::setTestNow($start->copy()->addHours(4)->addSeconds($secondsAfterDue));
+    $timer = fourHourTimer($start);
+
+    $status = $this->slaService->getSlaStatus($timer)['first_response'];
+
+    expect($status['state'])->toBe('breached')
+        ->and($status['remaining_seconds'])->toBe(0)
+        ->and($status['percent_remaining'])->toBe(0.0);
+})->with([
+    'exactly due' => [0],
+    'one second overdue' => [1],
+]);
+
+test('configured warning threshold is applied by the service', function () {
+    config(['sla.warning_percent' => 30]);
+    $start = Carbon::parse('2026-09-04 08:00:00 UTC');
+    Carbon::setTestNow($start->copy()->addSeconds((int) (14400 * 0.71)));
+    $timer = fourHourTimer($start);
+
+    $status = $this->slaService->getSlaStatus($timer)['first_response'];
+
+    expect($status['state'])->toBe('approaching')
+        ->and($status['percent_remaining'])->toBe(29.0)
+        ->and($status['warning_percent'])->toBe(30.0);
+});
+
+test('pause and resume preserve the original budget and remaining percentage', function () {
+    $start = Carbon::parse('2026-09-04 08:00:00 UTC');
+    $ticket = Ticket::factory()->create(['status' => TicketStatus::Open]);
+    $timer = fourHourTimer($start, $ticket);
+    $ticket->setRelation('slaTimer', $timer);
+
+    Carbon::setTestNow($start->copy()->addHour());
+    $this->slaService->handleStatusChange($ticket, TicketStatus::Open, TicketStatus::Pending);
+
+    Carbon::setTestNow($start->copy()->addHours(9));
+    $this->slaService->handleStatusChange($ticket, TicketStatus::Pending, TicketStatus::Open);
+
+    $timer->refresh();
+    $status = $this->slaService->getSlaStatus($timer)['first_response'];
+
+    expect($timer->first_response_budget_seconds)->toBe(14400)
+        ->and($status['remaining_seconds'])->toBe(10800)
+        ->and($status['percent_remaining'])->toBe(75.0)
+        ->and($status['state'])->toBe('on_track');
+});
+
+test('paused clock freezes the remaining seconds at the pause instant', function () {
+    $start = Carbon::parse('2026-09-04 08:00:00 UTC');
+    Carbon::setTestNow($start->copy()->addHours(3));
+    $timer = fourHourTimer($start);
+    $timer->update(['paused_at' => $start->copy()->addHours(2)]);
+
+    $status = $this->slaService->getSlaStatus($timer->fresh())['first_response'];
+
+    expect($status['state'])->toBe('paused')
+        ->and($status['remaining_seconds'])->toBe(7200)
+        ->and($status['percent_remaining'])->toBe(50.0);
+});
+
+test('completed clock distinguishes met and breached timestamps', function (int $completionHour, string $expectedState) {
+    $start = Carbon::parse('2026-09-04 08:00:00 UTC');
+    $timer = fourHourTimer($start);
+    $timer->update(['first_responded_at' => $start->copy()->addHours($completionHour)]);
+
+    $status = $this->slaService->getSlaStatus($timer->fresh())['first_response'];
+
+    expect($status['state'])->toBe($expectedState);
+})->with([
+    'completed before deadline' => [3, 'met'],
+    'completed after deadline' => [5, 'breached'],
+]);
+
+test('missing policy has explicit empty clock payloads', function () {
+    $status = $this->slaService->getSlaStatus(null);
+
+    expect($status['first_response']['state'])->toBe('none')
+        ->and($status['resolution']['state'])->toBe('none')
+        ->and($status['first_response']['due_at'])->toBeNull()
+        ->and($status['first_response']['remaining_seconds'])->toBeNull();
+});
+
+function fourHourTimer(Carbon $start, ?Ticket $ticket = null): SlaTimer
+{
+    $attributes = [
+        'first_response_started_at' => $start,
+        'first_response_budget_seconds' => 14400,
+        'first_response_due_at' => $start->copy()->addHours(4),
+        'first_responded_at' => null,
+        'first_response_breached' => false,
+        'paused_at' => null,
+        'total_paused_seconds' => 0,
+    ];
+
+    if ($ticket) {
+        $attributes['ticket_id'] = $ticket->id;
+    }
+
+    return SlaTimer::factory()->create($attributes);
+}
