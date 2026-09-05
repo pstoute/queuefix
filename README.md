@@ -146,6 +146,8 @@ AWS WorkMail supports standard IMAP/SMTP. Use the **Generic IMAP** option with:
 
 ## OAuth Login Setup (for Agents)
 
+OAuth login is available only to active staff accounts that an administrator has already created in **Settings > Users**.
+
 ### Google OAuth
 
 1. In Google Cloud Console, create OAuth 2.0 credentials
