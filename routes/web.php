@@ -39,6 +39,7 @@ Route::middleware('guest')->group(function () {
     Route::get('auth/magic-link', [MagicLinkController::class, 'showForm'])
         ->name('auth.magic-link');
     Route::post('auth/magic-link', [MagicLinkController::class, 'send'])
+        ->middleware('throttle:magic-link')
         ->name('auth.magic-link.send');
 });
 Route::get('auth/magic-link/verify/{user}', [MagicLinkController::class, 'verify'])
@@ -118,7 +119,9 @@ Route::middleware(['auth', 'active'])->group(function () {
 Route::prefix('portal')->name('customer.')->group(function () {
     Route::middleware('guest:customer')->group(function () {
         Route::get('login', [CustomerAuthController::class, 'showLogin'])->name('login');
-        Route::post('login', [CustomerAuthController::class, 'sendMagicLink'])->name('login.send');
+        Route::post('login', [CustomerAuthController::class, 'sendMagicLink'])
+            ->middleware('throttle:magic-link')
+            ->name('login.send');
     });
 
     Route::get('auth/verify/{customer}', [CustomerAuthController::class, 'verify'])
