@@ -31,14 +31,18 @@ QueueFix does **one thing well: support tickets.** No bloat, no unnecessary feat
 git clone https://github.com/yourusername/queuefix.git
 cd queuefix
 cp .env.example .env
-docker-compose up -d
-docker-compose exec app composer install
-docker-compose exec app php artisan key:generate
-docker-compose exec app php artisan migrate --seed
-docker-compose exec app sh -c "pnpm install && pnpm build"
+docker compose build
+docker compose run --rm --no-deps app php artisan key:generate
+docker compose up -d
+docker compose exec app php artisan migrate --seed
+docker compose exec app pnpm build
 ```
 
 Then open http://localhost:8000.
+
+Background services may restart while the first migration is pending. They recover
+automatically after the migration completes; confirm all services are running with
+`docker compose ps`.
 
 **Demo login:** `admin@example.com` / `password`
 
@@ -93,6 +97,37 @@ php artisan schedule:work
 ```
 
 ## Email Provider Setup
+
+### Threading after a ticket split
+
+When messages are split into a new ticket, their `Message-ID` values move with them. Future email whose `In-Reply-To` or `References` header names one of those messages continues on the new ticket. Email that has no matching message reference and only contains the original ticket number continues on the source ticket. Outbound replies from the new ticket use its new ticket number, so subsequent replies remain on the split branch.
+
+### Escalation evaluator cadence
+
+Active escalation rules are evaluated once per minute by the Laravel scheduler, which dispatches a queued evaluator job. Keep both `php artisan schedule:work` and `php artisan queue:work` running. Scheduler- and job-level overlap locks prevent concurrent runs, while a durable rule/ticket/trigger-window key prevents duplicate application across retries. Failed action batches roll back atomically and retry on a later evaluator run; each attempt remains visible in **Settings > Escalations**.
+
+Rules use an allowlisted JSON schema. Version 1 supports assignment, priority/status changes, internal notes, tag changes, and database notifications; it does not execute arbitrary code or send webhooks. Closed tickets require an explicit rule opt-in. Archived merged sources also require an explicit opt-in and permit notification actions only, preserving their immutable history.
+
+### Mailbox ingestion health and retries
+
+Mailbox health in **Settings > Mailboxes** is derived from persisted fetch attempts, successful fetches, sanitized error categories, retry time, queue claims, and pending processing counts. The scheduler evaluates due mailboxes every minute, but each mailbox is claimed before dispatch and protected by a second per-mailbox worker lock. **Fetch now** uses the same claim and queued job, so it cannot overlap an existing import. Claims older than 15 minutes are treated as stale and can be recovered.
+
+Provider failures use the following retry policy:
+
+| Category | Retry policy |
+| --- | --- |
+| Authentication or configuration | Retry after 60 minutes so an administrator can repair credentials or settings; a manual fetch can test the repair immediately. |
+| Transient provider failure | Exponential backoff from 5 minutes, capped at 240 minutes. |
+| Other provider rejection | Exponential backoff from 15 minutes, capped at 360 minutes. |
+| Processing or dispatch failure | Exponential backoff from 5 minutes, capped at 120 minutes. |
+
+A successful provider fetch clears its fetch failure state, updates the success time, records a provider cursor where the connector exposes one, and schedules the next normal polling interval. Persisted and rendered error messages are deliberately generic: credentials, tokens, provider response bodies, exception text, and email content are never copied into health state or application logs.
+
+### Canned responses
+
+Active canned responses can be searched, previewed, and inserted at the current cursor position from the agent reply composer. Insertion never sends the reply: agents can continue editing and explicitly submit only the final message body. Responses may be available to all agents or only their creator.
+
+Templates support only the following insertion-time placeholders: `{{customer.name}}`, `{{ticket.ticket_number}}`, `{{ticket.subject}}`, `{{department.name}}`, `{{assignee.name}}`, and `{{current_date}}`. Unknown placeholders are rejected instead of being replaced with blank text. Placeholder values and template markup are inserted and persisted as plain text, not executable HTML.
 
 ### Generic IMAP/SMTP
 

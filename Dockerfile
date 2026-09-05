@@ -27,15 +27,28 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 COPY composer.json composer.lock ./
 RUN composer install --no-scripts --no-autoloader
 
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 RUN composer dump-autoload --optimize
 
 EXPOSE 8000 5173
 
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000", "--no-reload"]
+
+# Frontend asset stage
+FROM node:22-bookworm-slim AS frontend
+
+RUN npm install -g pnpm
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build
 
 # Production stage
 FROM base AS production
@@ -43,23 +56,16 @@ FROM base AS production
 ENV APP_ENV=production
 ENV APP_DEBUG=false
 
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
-    && npm install -g pnpm
-
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --optimize-autoloader
 
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile --prod 2>/dev/null || pnpm install
-
 COPY . .
+COPY --from=frontend /app/public/build ./public/build
 RUN composer dump-autoload --optimize \
-    && pnpm build \
     && php artisan config:cache \
     && php artisan route:cache \
     && php artisan view:cache
 
 EXPOSE 8000
 
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000", "--no-reload"]
