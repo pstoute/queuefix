@@ -30,8 +30,25 @@ RUN composer install --no-scripts --no-autoloader
 COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install --frozen-lockfile 2>/dev/null || pnpm install
 
-COPY . .
-RUN composer dump-autoload --optimize
+COPY artisan ./
+COPY app ./app
+COPY bootstrap ./bootstrap
+COPY config ./config
+COPY database ./database
+COPY public ./public
+COPY resources ./resources
+COPY routes ./routes
+COPY .pnpmrc.json postcss.config.js tailwind.config.js tsconfig.json vite.config.js ./
+RUN mkdir -p \
+        bootstrap/cache \
+        storage/app/private \
+        storage/app/public \
+        storage/framework/cache/data \
+        storage/framework/sessions \
+        storage/framework/testing \
+        storage/framework/views \
+        storage/logs \
+    && composer dump-autoload --optimize
 
 EXPOSE 8000 5173
 
@@ -53,8 +70,25 @@ RUN composer install --no-dev --no-scripts --no-autoloader --optimize-autoloader
 COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install --frozen-lockfile --prod 2>/dev/null || pnpm install
 
-COPY . .
-RUN composer dump-autoload --optimize \
+COPY artisan ./
+COPY app ./app
+COPY bootstrap ./bootstrap
+COPY config ./config
+COPY database ./database
+COPY public ./public
+COPY resources ./resources
+COPY routes ./routes
+COPY .pnpmrc.json postcss.config.js tailwind.config.js tsconfig.json vite.config.js ./
+RUN mkdir -p \
+        bootstrap/cache \
+        storage/app/private \
+        storage/app/public \
+        storage/framework/cache/data \
+        storage/framework/sessions \
+        storage/framework/testing \
+        storage/framework/views \
+        storage/logs \
+    && composer dump-autoload --optimize \
     && pnpm build \
     && php artisan config:cache \
     && php artisan route:cache \
