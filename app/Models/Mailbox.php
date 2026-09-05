@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\MailboxType;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -38,6 +39,7 @@ class Mailbox extends Model
     protected function casts(): array
     {
         return [
+            'type' => MailboxType::class,
             'credentials' => 'encrypted:array',
             'incoming_settings' => 'json',
             'outgoing_settings' => 'json',
