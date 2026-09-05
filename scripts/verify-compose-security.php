@@ -36,6 +36,7 @@ try {
 
 $failures = [];
 $services = $compose['services'] ?? [];
+$app = $services['app'] ?? [];
 $postgres = $services['postgres'] ?? [];
 $mailpit = $services['mailpit'] ?? [];
 
@@ -44,6 +45,28 @@ foreach ($postgres['ports'] ?? [] as $port) {
 
     if (! in_array($hostIp, ['127.0.0.1', '::1'], true)) {
         $failures[] = 'PostgreSQL port publications must use a loopback host address.';
+    }
+}
+
+$expectedAppPorts = ['8000' => false, '5173' => false];
+
+foreach ($app['ports'] ?? [] as $port) {
+    $hostIp = is_array($port) ? ($port['host_ip'] ?? null) : null;
+    $target = is_array($port) ? (string) ($port['target'] ?? '') : '';
+    $published = is_array($port) ? (string) ($port['published'] ?? '') : '';
+
+    if (! in_array($hostIp, ['127.0.0.1', '::1'], true)) {
+        $failures[] = 'Application port publications must use a loopback host address.';
+    }
+
+    if (array_key_exists($target, $expectedAppPorts) && $published === $target) {
+        $expectedAppPorts[$target] = true;
+    }
+}
+
+foreach ($expectedAppPorts as $port => $isPublished) {
+    if (! $isPublished) {
+        $failures[] = "The app must publish host port {$port} to container port {$port} on loopback.";
     }
 }
 
@@ -118,7 +141,7 @@ if (! array_key_exists('queuefix', $mailpit['networks'] ?? [])) {
     $failures[] = 'Mailpit must remain attached to the queuefix network.';
 }
 
-$appEnvironment = $services['app']['environment'] ?? [];
+$appEnvironment = $app['environment'] ?? [];
 $expectedMailer = getenv('COMPOSE_EXPECTED_MAILER');
 
 if ($expectedMailer !== false
@@ -131,7 +154,7 @@ if (($appEnvironment['MAIL_HOST'] ?? null) !== 'mailpit'
     $failures[] = 'The app must reach Mailpit internally on mailpit:1025.';
 }
 
-if (! array_key_exists('queuefix', $services['app']['networks'] ?? [])) {
+if (! array_key_exists('queuefix', $app['networks'] ?? [])) {
     $failures[] = 'The app must remain attached to the queuefix network.';
 }
 

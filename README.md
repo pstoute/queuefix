@@ -34,7 +34,7 @@ cp .env.example .env
 docker compose build
 docker compose run --rm --no-deps app php artisan key:generate
 docker compose run --rm migrate
-docker compose run --rm --no-deps app php artisan db:seed --force
+docker compose run --rm --no-deps app php artisan queuefix:bootstrap-admin
 docker compose run --rm --no-deps app pnpm build
 docker compose up -d
 docker compose ps
@@ -42,9 +42,15 @@ docker compose ps
 
 Then open http://localhost:8000. Mailpit's development inbox is available only from the Docker host at http://127.0.0.1:8025.
 
-The one-off setup commands generate the application key, create and seed the database, and compile the frontend assets. On every startup, Compose safely runs any pending database migrations to completion before the web, queue, and scheduler services start. The background services restart automatically after transient failures and after the queue worker's hourly recycle.
+The one-off setup commands generate the application key, create the database, prompt for a unique administrator credential, and compile the frontend assets. On every startup, Compose safely runs any pending database migrations to completion before the web, queue, and scheduler services start. The background services restart automatically after transient failures and after the queue worker's hourly recycle. The web and Vite ports are bound to the Docker host's loopback interface by default.
 
-**Demo login:** `admin@example.com` / `password`
+For a disposable demo instead of a normal installation, set `QUEUEFIX_DEMO_MODE=true` in `.env`, start from an empty database, and replace the administrator bootstrap command above with:
+
+```bash
+docker compose run --rm --no-deps app php artisan db:seed --class=DemoSeeder --force
+```
+
+Demo mode intentionally creates the credentials displayed on the login screen. The demo seeder refuses to run unless demo mode is explicit or when staff users already exist.
 
 ## Manual Installation
 
@@ -80,8 +86,9 @@ php artisan key:generate
 # DB_USERNAME=your_user
 # DB_PASSWORD=your_password
 
-# Run migrations and seed demo data
-php artisan migrate --seed
+# Run migrations and create the first administrator
+php artisan migrate
+php artisan queuefix:bootstrap-admin
 
 # Build frontend assets
 pnpm build
@@ -95,6 +102,8 @@ php artisan queue:work
 # In a separate terminal, start the scheduler
 php artisan schedule:work
 ```
+
+To use sample data for a disposable local demo instead, set `QUEUEFIX_DEMO_MODE=true`, start from an empty database, and run `php artisan migrate --seed --seeder=DemoSeeder`. Do not run the demo seeder on an existing installation.
 
 ## Email Provider Setup
 
