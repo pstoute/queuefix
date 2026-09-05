@@ -10,7 +10,9 @@ use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Tag;
 use App\Models\Ticket;
+use App\Models\TicketReplyCapability;
 use App\Models\User;
+use App\Services\Email\TicketReplyCapabilityService;
 use App\Services\SlaService;
 use App\Services\TicketService;
 
@@ -284,6 +286,54 @@ test('merging tickets moves messages from secondary to primary', function () {
     expect($message1->fresh()->ticket_id)->toBe($primaryTicket->id);
     expect($message2->fresh()->ticket_id)->toBe($primaryTicket->id);
     expect($secondaryTicket->fresh()->status)->toBe(TicketStatus::Closed);
+});
+
+test('merging tickets preserves historical secure reply capabilities', function () {
+    $customer = Customer::factory()->create(['email' => 'customer@example.com']);
+    $mailbox = Mailbox::factory()->create([
+        'reply_address_template' => 'support+{token}@example.com',
+    ]);
+    $primaryTicket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
+    $secondaryTicket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
+    $capabilities = app(TicketReplyCapabilityService::class);
+    $secondaryAddress = $capabilities->replyAddress($secondaryTicket);
+
+    $result = $this->ticketService->mergeTickets($primaryTicket, $secondaryTicket);
+
+    expect(TicketReplyCapability::query()->sole()->ticket_id)->toBe($primaryTicket->id)
+        ->and($capabilities->resolveInboundTicketForUpdate($mailbox, $secondaryAddress, $customer)?->is($primaryTicket))->toBeTrue()
+        ->and($result->is($primaryTicket))->toBeTrue();
+});
+
+test('delayed outbound work cannot reissue a revoked capability to a merged ticket', function () {
+    $customer = Customer::factory()->create(['email' => 'customer@example.com']);
+    $mailbox = Mailbox::factory()->create([
+        'reply_address_template' => 'support+{token}@example.com',
+    ]);
+    $primaryTicket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
+    $secondaryTicket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
+    $capabilities = app(TicketReplyCapabilityService::class);
+    $capabilities->replyAddress($secondaryTicket);
+    $this->ticketService->mergeTickets($primaryTicket, $secondaryTicket);
+    $capabilities->revokeForTicket($primaryTicket);
+
+    expect($capabilities->replyAddress($secondaryTicket))->toBeNull();
+
+    $capability = TicketReplyCapability::query()->sole();
+    expect($capability->ticket_id)->toBe($primaryTicket->id)
+        ->and($capability->revoked_at)->not->toBeNull();
 });
 
 test('merging tickets syncs tags without duplicates', function () {

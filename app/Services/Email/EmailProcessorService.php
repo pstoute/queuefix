@@ -11,7 +11,6 @@ use App\Models\InboundEmailReceipt;
 use App\Models\Mailbox;
 use App\Models\MailboxAlias;
 use App\Models\Message;
-use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Attachments\AttachmentService;
 use App\Services\TicketService;
@@ -27,6 +26,7 @@ class EmailProcessorService
         private TicketService $ticketService,
         private AttachmentService $attachmentService,
         private InboundEmailNormalizer $normalizer,
+        private TicketReplyCapabilityService $replyCapabilities,
     ) {}
 
     public function processInboundEmail(array $emailData, Mailbox $mailbox): ?Ticket
@@ -135,47 +135,11 @@ class EmailProcessorService
 
     private function findExistingTicket(array $emailData, Customer $customer, Mailbox $mailbox): ?Ticket
     {
-        if (! empty($emailData['in_reply_to'])) {
-            $ticket = $this->findTicketByMessageId($emailData['in_reply_to'], $customer, $mailbox);
-            if ($ticket) {
-                return $ticket;
-            }
-        }
-
-        if (! empty($emailData['references'])) {
-            $ticket = $this->findTicketByMessageIds($emailData['references'], $customer, $mailbox);
-            if ($ticket) {
-                return $ticket;
-            }
-        }
-
-        $prefix = Setting::get('ticket_prefix', 'QF');
-        $escapedPrefix = preg_quote($prefix, '/');
-        if (preg_match('/\['.$escapedPrefix.'-(\d+)\]/', $emailData['subject'] ?? '', $matches)) {
-            $ticket = Ticket::where('ticket_number', $prefix.'-'.$matches[1])
-                ->where('customer_id', $customer->id)
-                ->where('mailbox_id', $mailbox->id)
-                ->first();
-            if ($ticket) {
-                return $ticket;
-            }
-        }
-
-        return null;
-    }
-
-    private function findTicketByMessageId(string $messageId, Customer $customer, Mailbox $mailbox): ?Ticket
-    {
-        return $this->findTicketByMessageIds([$messageId], $customer, $mailbox);
-    }
-
-    /** @param list<string> $messageIds */
-    private function findTicketByMessageIds(array $messageIds, Customer $customer, Mailbox $mailbox): ?Ticket
-    {
-        return Ticket::where('customer_id', $customer->id)
-            ->where('mailbox_id', $mailbox->id)
-            ->whereHas('messages', fn ($query) => $query->whereIn('message_id', $messageIds))
-            ->first();
+        return $this->replyCapabilities->resolveInboundTicketForUpdate(
+            $mailbox,
+            $emailData['to_email'] ?? null,
+            $customer,
+        );
     }
 
     private function resolveDepartment(array $emailData, Mailbox $mailbox): ?string

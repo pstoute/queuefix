@@ -6,6 +6,7 @@ use App\Exceptions\AttachmentRejected;
 use App\Models\Mailbox;
 use App\Services\Attachments\InboundAttachmentPolicy;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\Mime\Email;
 
 class ImapConnector implements InboundEmailConnector
 {
@@ -520,28 +521,7 @@ class ImapConnector implements InboundEmailConnector
         $transport->setPassword($this->mailbox->getDecryptedCredential('smtp_password') ?? $this->mailbox->getDecryptedCredential('password'));
 
         try {
-            $email = (new \Symfony\Component\Mime\Email)
-                ->from($this->mailbox->email)
-                ->to($data['to'])
-                ->subject($data['subject']);
-
-            if (! empty($data['html'])) {
-                $email->html($data['html']);
-            }
-
-            if (! empty($data['text'])) {
-                $email->text($data['text']);
-            }
-
-            if (! empty($data['headers'])) {
-                foreach ($data['headers'] as $name => $value) {
-                    if (! in_array(strtolower($name), ['subject', 'from', 'to'])) {
-                        $email->getHeaders()->addTextHeader($name, $value);
-                    }
-                }
-            }
-
-            $transport->send($email);
+            $transport->send($this->buildOutboundMessage($data));
 
             return true;
         } catch (\Throwable $e) {
@@ -552,6 +532,39 @@ class ImapConnector implements InboundEmailConnector
 
             return false;
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function buildOutboundMessage(array $data): Email
+    {
+        $email = (new Email)
+            ->from($this->mailbox->email)
+            ->to($data['to'])
+            ->subject($data['subject']);
+
+        if (! empty($data['reply_to'])) {
+            $email->replyTo($data['reply_to']);
+        }
+
+        if (! empty($data['html'])) {
+            $email->html($data['html']);
+        }
+
+        if (! empty($data['text'])) {
+            $email->text($data['text']);
+        }
+
+        if (! empty($data['headers'])) {
+            foreach ($data['headers'] as $name => $value) {
+                if (! in_array(strtolower($name), ['subject', 'from', 'to'])) {
+                    $email->getHeaders()->addTextHeader($name, $value);
+                }
+            }
+        }
+
+        return $email;
     }
 
     public function testConnection(Mailbox $mailbox): array

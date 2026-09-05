@@ -425,6 +425,16 @@ class MicrosoftGraphConnector implements InboundEmailConnector
                 'saveToSentItems' => true,
             ];
 
+            if (! empty($data['reply_to'])) {
+                $body['message']['replyTo'] = [
+                    [
+                        'emailAddress' => [
+                            'address' => $data['reply_to'],
+                        ],
+                    ],
+                ];
+            }
+
             if (! empty($data['headers'])) {
                 $internetHeaders = [];
                 foreach ($data['headers'] as $name => $value) {

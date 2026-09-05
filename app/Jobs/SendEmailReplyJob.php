@@ -2,14 +2,11 @@
 
 namespace App\Jobs;
 
-use App\Enums\MailboxType;
-use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Ticket;
 use App\Services\Email\EmailProcessorService;
-use App\Services\Email\GmailConnector;
-use App\Services\Email\ImapConnector;
-use App\Services\Email\MicrosoftGraphConnector;
+use App\Services\Email\MailboxConnectorFactory;
+use App\Services\Email\TicketReplyCapabilityService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -27,8 +24,11 @@ class SendEmailReplyJob implements ShouldQueue
         private string $messageId,
     ) {}
 
-    public function handle(EmailProcessorService $emailProcessor): void
-    {
+    public function handle(
+        EmailProcessorService $emailProcessor,
+        TicketReplyCapabilityService $replyCapabilities,
+        MailboxConnectorFactory $connectorFactory,
+    ): void {
         $ticket = Ticket::with(['customer', 'mailbox', 'messages'])->find($this->ticketId);
         $message = Message::find($this->messageId);
 
@@ -42,7 +42,7 @@ class SendEmailReplyJob implements ShouldQueue
         }
 
         $mailbox = $ticket->mailbox;
-        $connector = $this->getConnector($mailbox);
+        $connector = $connectorFactory->make($mailbox);
 
         if (! $connector || ! $connector->connect($mailbox)) {
             Log::error('Failed to connect to mailbox for sending', ['mailbox_id' => $mailbox->id]);
@@ -57,6 +57,7 @@ class SendEmailReplyJob implements ShouldQueue
             ->first();
 
         $headers = $emailProcessor->buildOutboundHeaders($ticket, $lastCustomerMessage);
+        $replyTo = $replyCapabilities->replyAddress($ticket);
 
         $success = $connector->sendEmail([
             'to' => $ticket->customer->email,
@@ -64,6 +65,7 @@ class SendEmailReplyJob implements ShouldQueue
             'text' => $message->body_text,
             'html' => $message->body_html,
             'headers' => $headers,
+            'reply_to' => $replyTo,
         ]);
 
         if (! $success) {
@@ -72,14 +74,5 @@ class SendEmailReplyJob implements ShouldQueue
                 'message_id' => $this->messageId,
             ]);
         }
-    }
-
-    private function getConnector(Mailbox $mailbox): ImapConnector|GmailConnector|MicrosoftGraphConnector|null
-    {
-        return match ($mailbox->type) {
-            MailboxType::Imap => app(ImapConnector::class),
-            MailboxType::Gmail => app(GmailConnector::class),
-            MailboxType::Microsoft => app(MicrosoftGraphConnector::class),
-        };
     }
 }

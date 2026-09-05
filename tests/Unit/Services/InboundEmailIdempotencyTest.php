@@ -12,6 +12,7 @@ use App\Models\Ticket;
 use App\Services\Attachments\AttachmentService;
 use App\Services\Email\EmailProcessorService;
 use App\Services\Email\InboundEmailNormalizer;
+use App\Services\Email\TicketReplyCapabilityService;
 use App\Services\TicketService;
 use Illuminate\Support\Facades\Storage;
 
@@ -68,9 +69,11 @@ test('replaying one provider reply appends it only once', function () {
         'ticket_id' => $ticket->id,
         'message_id' => '<original@example.com>',
     ]);
+    $mailbox->update(['reply_address_template' => 'support+{token}@example.com']);
     $email = [
         'provider_message_id' => 'imap:INBOX:123:789',
         'from_email' => $customer->email,
+        'to_email' => app(TicketReplyCapabilityService::class)->replyAddress($ticket),
         'subject' => 'Re: Original',
         'body_text' => 'One reply',
         'message_id' => '<reply@example.com>',
@@ -215,6 +218,7 @@ test('a failed transaction does not poison the provider identity claim', functio
         $failingTicketService,
         app(AttachmentService::class),
         app(InboundEmailNormalizer::class),
+        app(TicketReplyCapabilityService::class),
     );
 
     expect(fn () => $failingProcessor->processInboundEmail($email, $mailbox))

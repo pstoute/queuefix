@@ -28,6 +28,7 @@ export default function CreateMailbox({ types, departments }: CreateMailboxProps
     const { data, setData, post, processing, errors, transform } = useForm({
         name: '',
         email: '',
+        reply_address_template: '',
         type: 'imap' as MailboxType,
         department_id: '',
         polling_interval: 5,
@@ -129,6 +130,30 @@ export default function CreateMailbox({ types, departments }: CreateMailboxProps
                                         <p className="text-sm text-destructive">{errors.email}</p>
                                     )}
                                 </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="reply_address_template">
+                                    Secure Reply Address Template
+                                </Label>
+                                <Input
+                                    id="reply_address_template"
+                                    type="text"
+                                    value={data.reply_address_template}
+                                    onChange={(e) =>
+                                        setData('reply_address_template', e.target.value)
+                                    }
+                                    placeholder="support+{token}@example.com"
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Configure a routable address containing {'{token}'} to authenticate
+                                    replies. Without it, inbound messages start new tickets.
+                                </p>
+                                {errors.reply_address_template && (
+                                    <p className="text-sm text-destructive">
+                                        {errors.reply_address_template}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="grid gap-4 md:grid-cols-2">

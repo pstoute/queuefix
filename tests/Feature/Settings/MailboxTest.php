@@ -35,6 +35,7 @@ test('creating a mailbox', function () {
     post(route('settings.mailboxes.store'), [
         'name' => 'Support Mailbox',
         'email' => 'support@example.com',
+        'reply_address_template' => 'support+{token}@example.com',
         'type' => MailboxType::Imap->value,
         'polling_interval' => 5,
         'incoming_settings' => [
@@ -58,6 +59,7 @@ test('creating a mailbox', function () {
     $this->assertDatabaseHas('mailboxes', [
         'name' => 'Support Mailbox',
         'email' => 'support@example.com',
+        'reply_address_template' => 'support+{token}@example.com',
         'type' => MailboxType::Imap->value,
         'polling_interval' => 5,
     ]);
@@ -71,6 +73,7 @@ test('updating a mailbox', function () {
     put(route('settings.mailboxes.update', $mailbox), [
         'name' => 'Updated Name',
         'email' => $mailbox->email,
+        'reply_address_template' => 'reply-{token}@example.com',
         'polling_interval' => 10,
         'is_active' => false,
     ])
@@ -82,8 +85,24 @@ test('updating a mailbox', function () {
         'name' => 'Updated Name',
         'polling_interval' => 10,
         'is_active' => false,
+        'reply_address_template' => 'reply-{token}@example.com',
     ]);
 });
+
+test('reply address templates require one routable token placeholder', function (string $template) {
+    actingAs($this->admin);
+
+    post(route('settings.mailboxes.store'), [
+        'name' => 'Secure Replies',
+        'email' => 'secure@example.com',
+        'reply_address_template' => $template,
+        'type' => MailboxType::Gmail->value,
+    ])->assertSessionHasErrors('reply_address_template');
+})->with([
+    'no placeholder' => 'reply@example.com',
+    'two placeholders' => '{token}+{token}@example.com',
+    'invalid email' => 'reply-{token}',
+]);
 
 test('deleting a mailbox', function () {
     actingAs($this->admin);

@@ -9,6 +9,7 @@ use App\Models\Mailbox;
 use App\Services\Email\GmailConnector;
 use App\Services\Email\ImapConnector;
 use App\Services\Email\MicrosoftGraphConnector;
+use App\Services\Email\TicketReplyCapabilityService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -24,6 +25,7 @@ class MailboxController extends Controller
                     'id' => $mailbox->id,
                     'name' => $mailbox->name,
                     'email' => $mailbox->email,
+                    'reply_address_template' => $mailbox->reply_address_template,
                     'type' => $mailbox->type,
                     'department_id' => $mailbox->department_id,
                     'department' => $mailbox->department,
@@ -49,11 +51,21 @@ class MailboxController extends Controller
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, TicketReplyCapabilityService $replyCapabilities): RedirectResponse
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:mailboxes,email',
+            'reply_address_template' => [
+                'nullable',
+                'string',
+                'max:255',
+                function (string $attribute, mixed $value, \Closure $fail) use ($replyCapabilities): void {
+                    if ($value !== null && $value !== '' && ! $replyCapabilities->templateIsValid($value)) {
+                        $fail('The reply address template must be a valid email address containing one {token} placeholder.');
+                    }
+                },
+            ],
             'type' => 'required|string|in:'.implode(',', array_column(MailboxType::cases(), 'value')),
             'department_id' => 'nullable|exists:departments,id',
             'polling_interval' => 'integer|min:1|max:60',
@@ -76,6 +88,9 @@ class MailboxController extends Controller
         $mailbox = new Mailbox;
         $mailbox->name = $validated['name'];
         $mailbox->email = $validated['email'];
+        $mailbox->reply_address_template = empty($validated['reply_address_template'])
+            ? null
+            : trim($validated['reply_address_template']);
         $mailbox->type = MailboxType::from($validated['type']);
         $mailbox->department_id = $validated['department_id'] ?? null;
         $mailbox->polling_interval = $validated['polling_interval'] ?? 2;
@@ -109,6 +124,7 @@ class MailboxController extends Controller
                 'id' => $mailbox->id,
                 'name' => $mailbox->name,
                 'email' => $mailbox->email,
+                'reply_address_template' => $mailbox->reply_address_template,
                 'type' => $mailbox->type,
                 'department_id' => $mailbox->department_id,
                 'polling_interval' => $mailbox->polling_interval,
@@ -126,11 +142,24 @@ class MailboxController extends Controller
         ]);
     }
 
-    public function update(Request $request, Mailbox $mailbox): RedirectResponse
-    {
+    public function update(
+        Request $request,
+        Mailbox $mailbox,
+        TicketReplyCapabilityService $replyCapabilities,
+    ): RedirectResponse {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:mailboxes,email,'.$mailbox->id,
+            'reply_address_template' => [
+                'nullable',
+                'string',
+                'max:255',
+                function (string $attribute, mixed $value, \Closure $fail) use ($replyCapabilities): void {
+                    if ($value !== null && $value !== '' && ! $replyCapabilities->templateIsValid($value)) {
+                        $fail('The reply address template must be a valid email address containing one {token} placeholder.');
+                    }
+                },
+            ],
             'department_id' => 'nullable|exists:departments,id',
             'polling_interval' => 'integer|min:1|max:60',
             'is_active' => 'boolean',
@@ -145,6 +174,9 @@ class MailboxController extends Controller
         $mailbox->update([
             'name' => $validated['name'],
             'email' => $validated['email'],
+            'reply_address_template' => array_key_exists('reply_address_template', $validated)
+                ? (empty($validated['reply_address_template']) ? null : trim($validated['reply_address_template']))
+                : $mailbox->reply_address_template,
             'department_id' => $validated['department_id'] ?? null,
             'polling_interval' => $validated['polling_interval'] ?? $mailbox->polling_interval,
             'is_active' => $validated['is_active'] ?? $mailbox->is_active,

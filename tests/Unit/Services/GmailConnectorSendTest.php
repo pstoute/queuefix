@@ -57,6 +57,7 @@ test('Gmail serialization preserves legitimate threaded multipart email', functi
         'subject' => '[QF-123] A legitimate reply',
         'text' => 'Plain reply',
         'html' => '<p>HTML reply</p>',
+        'reply_to' => 'support+0123456789abcdef0123456789abcdef0123456789abcdef@example.com',
         'headers' => [
             'Subject' => '[QF-123] A legitimate reply',
             'In-Reply-To' => '<original@example.com>',
@@ -67,6 +68,7 @@ test('Gmail serialization preserves legitimate threaded multipart email', functi
     expect($sent)->toBeTrue()
         ->and($raw)->toContain('From: support@example.com')
         ->and($raw)->toContain('To: customer@example.com')
+        ->and($raw)->toContain('Reply-To: support+0123456789abcdef0123456789abcdef0123456789abcdef@example.com')
         ->and($raw)->toContain('Subject: [QF-123] A legitimate reply')
         ->and(preg_match_all('/^Subject:/mi', $raw))->toBe(1)
         ->and($raw)->toContain('In-Reply-To: <original@example.com>')

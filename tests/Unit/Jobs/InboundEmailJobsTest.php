@@ -3,6 +3,7 @@
 use App\Enums\AttachmentScanStatus;
 use App\Jobs\FetchEmailsJob;
 use App\Jobs\ProcessInboundEmailJob;
+use App\Jobs\SendEmailReplyJob;
 use App\Models\Attachment;
 use App\Models\InboundEmailClaim;
 use App\Models\InboundEmailReceipt;
@@ -10,11 +11,13 @@ use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Models\TicketReplyCapability;
 use App\Services\Email\EmailProcessorService;
 use App\Services\Email\InboundEmailClaimService;
 use App\Services\Email\InboundEmailConnector;
 use App\Services\Email\InboundEmailPollingPolicy;
 use App\Services\Email\MailboxConnectorFactory;
+use App\Services\Email\TicketReplyCapabilityService;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -630,4 +633,33 @@ test('terminally malformed provider metadata records one rejection and is acknow
         ->and($receipt->rejection_reason)->toBe('invalid_from_email')
         ->and(Ticket::query()->count())->toBe(0)
         ->and(Message::query()->count())->toBe(0);
+});
+
+test('outbound replies carry a stable secure Reply-To capability', function () {
+    $mailbox = Mailbox::factory()->create([
+        'reply_address_template' => 'support+{token}@example.com',
+    ]);
+    $ticket = Ticket::factory()->for($mailbox)->create();
+    $message = Message::factory()->for($ticket)->fromAgent()->create();
+    $processor = Mockery::mock(EmailProcessorService::class);
+    $processor->shouldReceive('buildOutboundHeaders')->once()->andReturn([
+        'Subject' => 'Re: Secure thread',
+    ]);
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->once()->withArgs(fn (Mailbox $argument) => $argument->is($mailbox))->andReturnTrue();
+    $connector->shouldReceive('sendEmail')->once()->withArgs(function (array $data): bool {
+        expect($data['reply_to'])->toMatch('/^support\+[0-9a-f]{48}@example\.com$/');
+
+        return true;
+    })->andReturnTrue();
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->once()->andReturn($connector);
+
+    (new SendEmailReplyJob($ticket->id, $message->id))->handle(
+        $processor,
+        app(TicketReplyCapabilityService::class),
+        $connectorFactory,
+    );
+
+    expect(TicketReplyCapability::query()->count())->toBe(1);
 });

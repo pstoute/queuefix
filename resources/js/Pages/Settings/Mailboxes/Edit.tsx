@@ -41,6 +41,7 @@ export default function EditMailbox({ mailbox, types, departments }: EditMailbox
     const { data, setData, put, processing, errors, transform } = useForm({
         name: mailbox.name,
         email: mailbox.email,
+        reply_address_template: mailbox.reply_address_template || '',
         type: mailbox.type,
         department_id: mailbox.department_id || '',
         polling_interval: mailbox.polling_interval,
@@ -139,6 +140,30 @@ export default function EditMailbox({ mailbox, types, departments }: EditMailbox
                                         <p className="text-sm text-destructive">{errors.email}</p>
                                     )}
                                 </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="reply_address_template">
+                                    Secure Reply Address Template
+                                </Label>
+                                <Input
+                                    id="reply_address_template"
+                                    type="text"
+                                    value={data.reply_address_template}
+                                    onChange={(e) =>
+                                        setData('reply_address_template', e.target.value)
+                                    }
+                                    placeholder="support+{token}@example.com"
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Configure a routable address containing {'{token}'} to authenticate
+                                    replies. Without it, inbound messages start new tickets.
+                                </p>
+                                {errors.reply_address_template && (
+                                    <p className="text-sm text-destructive">
+                                        {errors.reply_address_template}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="grid gap-4 md:grid-cols-2">
