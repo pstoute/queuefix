@@ -22,13 +22,13 @@ FROM base AS development
 
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
-    && npm install -g pnpm
+    && npm install -g pnpm@10
 
 COPY composer.json composer.lock ./
 RUN composer install --no-scripts --no-autoloader
 
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY artisan ./
 COPY app ./app
@@ -38,7 +38,7 @@ COPY database ./database
 COPY public ./public
 COPY resources ./resources
 COPY routes ./routes
-COPY .pnpmrc.json postcss.config.js tailwind.config.js tsconfig.json vite.config.js ./
+COPY postcss.config.js tailwind.config.js tsconfig.json vite.config.js ./
 RUN mkdir -p \
         bootstrap/cache \
         storage/app/private \
@@ -54,21 +54,29 @@ EXPOSE 8000 5173
 
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
 
+# Frontend asset stage
+FROM node:22-bookworm-slim AS frontend
+
+RUN npm install -g pnpm@10
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY public ./public
+COPY resources ./resources
+COPY postcss.config.js tailwind.config.js tsconfig.json vite.config.js ./
+RUN pnpm build
+
 # Production stage
 FROM base AS production
 
 ENV APP_ENV=production
 ENV APP_DEBUG=false
 
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
-    && npm install -g pnpm
-
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --optimize-autoloader
-
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile --prod 2>/dev/null || pnpm install
 
 COPY artisan ./
 COPY app ./app
@@ -78,7 +86,7 @@ COPY database ./database
 COPY public ./public
 COPY resources ./resources
 COPY routes ./routes
-COPY .pnpmrc.json postcss.config.js tailwind.config.js tsconfig.json vite.config.js ./
+COPY --from=frontend /app/public/build ./public/build
 RUN mkdir -p \
         bootstrap/cache \
         storage/app/private \
@@ -89,7 +97,6 @@ RUN mkdir -p \
         storage/framework/views \
         storage/logs \
     && composer dump-autoload --optimize \
-    && pnpm build \
     && php artisan config:cache \
     && php artisan route:cache \
     && php artisan view:cache

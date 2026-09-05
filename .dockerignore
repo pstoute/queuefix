@@ -4,7 +4,6 @@
 **
 
 !.dockerignore
-!.pnpmrc.json
 !Dockerfile
 !artisan
 !composer.json
