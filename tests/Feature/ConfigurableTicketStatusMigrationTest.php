@@ -5,7 +5,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 test('migration maps every legacy status and reverses configurable records safely', function () {
+    $reportingIndexMigration = require database_path('migrations/2026_09_04_000008_add_reporting_indexes.php');
     $migration = require database_path('migrations/2026_09_04_000001_make_ticket_statuses_configurable.php');
+    $reportingIndexMigration->down();
     $migration->down();
 
     $customer = Customer::factory()->create();
@@ -64,4 +66,5 @@ test('migration maps every legacy status and reverses configurable records safel
         ->and(DB::table('tickets')->where('subject', 'Legacy closed')->value('status'))->toBe('closed');
 
     $migration->up();
+    $reportingIndexMigration->up();
 });

@@ -19,6 +19,7 @@ use App\Http\Controllers\Settings\DepartmentController;
 use App\Http\Controllers\Settings\GeneralSettingsController;
 use App\Http\Controllers\Settings\MailboxController;
 use App\Http\Controllers\Settings\SlaController;
+use App\Http\Controllers\Settings\SupportReportController;
 use App\Http\Controllers\Settings\TicketStatusController;
 use App\Http\Controllers\Settings\UpdateCheckController;
 use App\Http\Controllers\Settings\UserManagementController;
@@ -92,6 +93,9 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('sett
     Route::put('general', [GeneralSettingsController::class, 'update'])->name('general.update');
 
     Route::get('updates', [UpdateCheckController::class, 'index'])->name('updates.index');
+
+    Route::get('reports', [SupportReportController::class, 'index'])->name('reports.index');
+    Route::get('reports/export', [SupportReportController::class, 'export'])->name('reports.export');
 
     Route::get('appearance', [AppearanceController::class, 'index'])->name('appearance.index');
     Route::put('appearance', [AppearanceController::class, 'update'])->name('appearance.update');
