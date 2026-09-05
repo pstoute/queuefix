@@ -535,18 +535,6 @@ parameters:
 			path: app/Services/Email/EmailProcessorService.php
 
 		-
-			message: '#^Call to an undefined method App\\Models\\Mailbox\:\:getDecryptedCredential\(\)\.$#'
-			identifier: method.notFound
-			count: 2
-			path: app/Services/Email/GmailConnector.php
-
-		-
-			message: '#^Call to an undefined method App\\Models\\Mailbox\:\:setEncryptedCredential\(\)\.$#'
-			identifier: method.notFound
-			count: 1
-			path: app/Services/Email/GmailConnector.php
-
-		-
 			message: '#^Method App\\Services\\Email\\GmailConnector\:\:extractBody\(\) has parameter \$payload with no type specified\.$#'
 			identifier: missingType.parameter
 			count: 1
@@ -587,12 +575,6 @@ parameters:
 			identifier: missingType.iterableValue
 			count: 1
 			path: app/Services/Email/GmailConnector.php
-
-		-
-			message: '#^Call to an undefined method App\\Models\\Mailbox\:\:getDecryptedCredential\(\)\.$#'
-			identifier: method.notFound
-			count: 6
-			path: app/Services/Email/ImapConnector.php
 
 		-
 			message: '#^Method App\\Services\\Email\\ImapConnector\:\:parseEmail\(\) return type has no value type specified in iterable type array\.$#'
@@ -641,18 +623,6 @@ parameters:
 			identifier: missingType.property
 			count: 1
 			path: app/Services/Email/ImapConnector.php
-
-		-
-			message: '#^Call to an undefined method App\\Models\\Mailbox\:\:getDecryptedCredential\(\)\.$#'
-			identifier: method.notFound
-			count: 3
-			path: app/Services/Email/MicrosoftGraphConnector.php
-
-		-
-			message: '#^Call to an undefined method App\\Models\\Mailbox\:\:setEncryptedCredential\(\)\.$#'
-			identifier: method.notFound
-			count: 3
-			path: app/Services/Email/MicrosoftGraphConnector.php
 
 		-
 			message: '#^Method App\\Services\\Email\\MicrosoftGraphConnector\:\:extractInternetHeaders\(\) has parameter \$headers with no value type specified in iterable type array\.$#'

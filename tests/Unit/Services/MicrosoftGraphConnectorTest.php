@@ -6,7 +6,60 @@ use App\Models\Message;
 use App\Models\Ticket;
 use App\Services\Email\MicrosoftGraphConnector;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+
+test('Graph connects with credentials hydrated by a real mailbox model', function () {
+    Http::fake();
+    $mailbox = Mailbox::factory()->create([
+        'credentials' => [
+            'access_token' => 'persisted-access-token',
+            'refresh_token' => 'persisted-refresh-token',
+            'token_expires_at' => (string) now()->addHour()->timestamp,
+        ],
+    ]);
+
+    $connector = new MicrosoftGraphConnector;
+
+    expect($connector->connect($mailbox->fresh()))->toBeTrue();
+    Http::assertNothingSent();
+});
+
+test('Graph persists refreshed credentials through a real mailbox model', function () {
+    Http::fake([
+        'https://login.microsoftonline.com/*' => Http::response([
+            'access_token' => 'rotated-access-token',
+            'refresh_token' => 'rotated-refresh-token',
+            'expires_in' => 3600,
+        ]),
+    ]);
+    $mailbox = Mailbox::factory()->create([
+        'credentials' => [
+            'access_token' => 'expired-access-token',
+            'refresh_token' => 'persisted-refresh-token',
+            'token_expires_at' => (string) now()->subMinute()->timestamp,
+            'provider_account_id' => 'account-123',
+        ],
+    ]);
+
+    $connector = new MicrosoftGraphConnector;
+    $credentialUpdates = 0;
+    DB::listen(function ($query) use (&$credentialUpdates): void {
+        if (preg_match('/^update\s+[`"]?mailboxes[`"]?/i', $query->sql) === 1) {
+            $credentialUpdates++;
+        }
+    });
+
+    expect($connector->connect($mailbox->fresh()))->toBeTrue();
+
+    $hydratedMailbox = $mailbox->fresh();
+
+    expect($hydratedMailbox->getDecryptedCredential('access_token'))->toBe('rotated-access-token')
+        ->and($hydratedMailbox->getDecryptedCredential('refresh_token'))->toBe('rotated-refresh-token')
+        ->and((int) $hydratedMailbox->getDecryptedCredential('token_expires_at'))->toBeGreaterThan(now()->timestamp)
+        ->and($hydratedMailbox->getDecryptedCredential('provider_account_id'))->toBe('account-123')
+        ->and($credentialUpdates)->toBe(1);
+});
 
 test('Graph uses immutable provider IDs and acknowledges only after fetching', function () {
     Http::fake(function (Request $request) {
