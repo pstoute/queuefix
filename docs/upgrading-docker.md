@@ -21,6 +21,27 @@ The script refuses a dirty Git working tree, verifies that the specified tag exi
 
 It never deletes a backup or runs a database restore automatically. Keep the backup until the deployment has been smoke-tested.
 
+## PostgreSQL host access
+
+The default Compose configuration does not publish PostgreSQL to the host. Application services and maintenance commands continue to reach it through the private Compose network. After updating, use `docker compose up -d postgres` rather than `docker compose restart postgres` so Docker recreates the service with the new network configuration.
+
+Run PostgreSQL tools through the container when possible:
+
+```bash
+docker compose exec postgres psql -U queuefix queuefix
+```
+
+If a host-side database client is required for local development, create an untracked `docker-compose.override.yml` that binds PostgreSQL only to loopback:
+
+```yaml
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+```
+
+Never publish the database with an unqualified `5432:5432` mapping or a wildcard host address.
+
 ## Rollback
 
 Application-code rollback is manual and should only be attempted after reviewing migrations. From the same clone:
