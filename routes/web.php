@@ -46,7 +46,7 @@ Route::get('auth/magic-link/verify/{user}', [MagicLinkController::class, 'verify
     ->middleware('signed');
 
 // Agent dashboard routes
-Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(function () {
+Route::middleware(['auth', 'active', 'verified'])->prefix('agent')->name('agent.')->group(function () {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
     // Tickets
@@ -75,7 +75,7 @@ Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(
 });
 
 // Settings (admin only)
-Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('settings.')->group(function () {
+Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('settings')->name('settings.')->group(function () {
     Route::get('general', [GeneralSettingsController::class, 'index'])->name('general.index');
     Route::put('general', [GeneralSettingsController::class, 'update'])->name('general.update');
 
@@ -108,7 +108,7 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('sett
 });
 
 // Profile
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'active'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
