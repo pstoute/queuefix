@@ -8,7 +8,7 @@ use Google\Service\Gmail;
 use Google\Service\Gmail\ModifyMessageRequest;
 use Illuminate\Support\Facades\Log;
 
-class GmailConnector
+class GmailConnector implements InboundEmailConnector
 {
     private ?Gmail $service = null;
 
@@ -56,10 +56,9 @@ class GmailConnector
         }
 
         try {
+            // Unread state is the retry cursor. A timestamp filter could permanently
+            // skip a message whose dispatch or acknowledgement previously failed.
             $query = 'is:unread';
-            if ($since) {
-                $query .= ' after:'.$since->format('Y/m/d');
-            }
 
             $results = $this->service->users_messages->listUsersMessages('me', [
                 'q' => $query,
@@ -93,17 +92,19 @@ class GmailConnector
 
     private function parseMessage(string $messageId): array
     {
+        if (trim($messageId) === '') {
+            throw new \UnexpectedValueException('Gmail message is missing a stable provider identity.');
+        }
+
         $message = $this->service->users_messages->get('me', $messageId, ['format' => 'full']);
         $headers = $this->extractHeaders($message->getPayload()->getHeaders());
 
         $body = $this->extractBody($message->getPayload());
         $attachments = $this->extractAttachments($message->getPayload(), $messageId);
 
-        $modify = new ModifyMessageRequest;
-        $modify->setRemoveLabelIds(['UNREAD']);
-        $this->service->users_messages->modify('me', $messageId, $modify);
-
         return [
+            'provider_message_id' => 'gmail:'.$messageId,
+            'provider_remote_id' => $messageId,
             'from_email' => $this->parseEmailAddress($headers['From'] ?? ''),
             'from_name' => $this->parseEmailName($headers['From'] ?? ''),
             'to_email' => $this->parseEmailAddress($headers['To'] ?? $headers['Delivered-To'] ?? ''),
@@ -116,6 +117,34 @@ class GmailConnector
             'date' => $headers['Date'] ?? null,
             'attachments' => $attachments,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $emailData
+     */
+    public function acknowledge(array $emailData): bool
+    {
+        $messageId = trim((string) ($emailData['provider_remote_id'] ?? ''));
+
+        if (! $this->service || $messageId === '') {
+            return false;
+        }
+
+        try {
+            $modify = new ModifyMessageRequest;
+            $modify->setRemoveLabelIds(['UNREAD']);
+            $this->service->users_messages->modify('me', $messageId, $modify);
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::warning('Failed to mark Gmail message as read', [
+                'mailbox_id' => $this->mailbox->id,
+                'provider_message_id' => $emailData['provider_message_id'] ?? 'unknown',
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
     }
 
     private function extractHeaders(array $headers): array

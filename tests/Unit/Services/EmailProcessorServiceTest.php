@@ -13,7 +13,17 @@ beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->ticketService = app(TicketService::class);
-    $this->emailProcessor = new EmailProcessorService($this->ticketService);
+    $this->emailProcessor = new class($this->ticketService) extends EmailProcessorService
+    {
+        private int $providerMessageSequence = 0;
+
+        public function processInboundEmail(array $emailData, Mailbox $mailbox): ?Ticket
+        {
+            $emailData['provider_message_id'] ??= 'test:'.++$this->providerMessageSequence;
+
+            return parent::processInboundEmail($emailData, $mailbox);
+        }
+    };
 });
 
 test('creating new ticket from new sender', function () {

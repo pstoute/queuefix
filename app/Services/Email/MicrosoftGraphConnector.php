@@ -3,10 +3,12 @@
 namespace App\Services\Email;
 
 use App\Models\Mailbox;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use UnexpectedValueException;
 
-class MicrosoftGraphConnector
+class MicrosoftGraphConnector implements InboundEmailConnector
 {
     private Mailbox $mailbox;
 
@@ -81,12 +83,11 @@ class MicrosoftGraphConnector
         }
 
         try {
+            // Unread state is the retry cursor. A timestamp filter could permanently
+            // skip a message whose dispatch or acknowledgement previously failed.
             $filter = 'isRead eq false';
-            if ($since) {
-                $filter .= " and receivedDateTime ge {$since->format('Y-m-d\TH:i:s\Z')}";
-            }
 
-            $response = Http::withToken($this->accessToken)
+            $response = $this->client()
                 ->get("{$this->baseUrl}/me/messages", [
                     '$filter' => $filter,
                     '$top' => 50,
@@ -108,11 +109,6 @@ class MicrosoftGraphConnector
             foreach ($response->json('value', []) as $msg) {
                 try {
                     $messages[] = $this->parseMessage($msg);
-
-                    Http::withToken($this->accessToken)
-                        ->patch("{$this->baseUrl}/me/messages/{$msg['id']}", [
-                            'isRead' => true,
-                        ]);
                 } catch (\Throwable $e) {
                     Log::warning('Failed to parse Graph message', [
                         'mailbox_id' => $this->mailbox->id,
@@ -135,6 +131,12 @@ class MicrosoftGraphConnector
 
     private function parseMessage(array $msg): array
     {
+        $providerMessageId = trim((string) ($msg['id'] ?? ''));
+
+        if ($providerMessageId === '') {
+            throw new UnexpectedValueException('Graph message is missing an immutable provider identity.');
+        }
+
         $headers = $this->extractInternetHeaders($msg['internetMessageHeaders'] ?? []);
         $attachments = [];
 
@@ -143,6 +145,8 @@ class MicrosoftGraphConnector
         }
 
         return [
+            'provider_message_id' => 'microsoft:'.$providerMessageId,
+            'provider_remote_id' => $providerMessageId,
             'from_email' => strtolower($msg['from']['emailAddress']['address'] ?? ''),
             'from_name' => $msg['from']['emailAddress']['name'] ?? null,
             'to_email' => strtolower($msg['toRecipients'][0]['emailAddress']['address'] ?? ''),
@@ -157,6 +161,34 @@ class MicrosoftGraphConnector
         ];
     }
 
+    /**
+     * @param  array<string, mixed>  $emailData
+     */
+    public function acknowledge(array $emailData): bool
+    {
+        $messageId = trim((string) ($emailData['provider_remote_id'] ?? ''));
+
+        if (! $this->accessToken || $messageId === '') {
+            return false;
+        }
+
+        try {
+            $encodedMessageId = rawurlencode($messageId);
+
+            return $this->client()
+                ->patch("{$this->baseUrl}/me/messages/{$encodedMessageId}", ['isRead' => true])
+                ->successful();
+        } catch (\Throwable $e) {
+            Log::warning('Failed to mark Graph message as read', [
+                'mailbox_id' => $this->mailbox->id,
+                'provider_message_id' => $emailData['provider_message_id'] ?? 'unknown',
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
     private function extractInternetHeaders(array $headers): array
     {
         $result = [];
@@ -169,8 +201,9 @@ class MicrosoftGraphConnector
 
     private function fetchAttachments(string $messageId): array
     {
-        $response = Http::withToken($this->accessToken)
-            ->get("{$this->baseUrl}/me/messages/{$messageId}/attachments");
+        $encodedMessageId = rawurlencode($messageId);
+        $response = $this->client()
+            ->get("{$this->baseUrl}/me/messages/{$encodedMessageId}/attachments");
 
         if (! $response->successful()) {
             return [];
@@ -228,7 +261,7 @@ class MicrosoftGraphConnector
                 $body['message']['internetMessageHeaders'] = $internetHeaders;
             }
 
-            $response = Http::withToken($this->accessToken)
+            $response = $this->client()
                 ->post("{$this->baseUrl}/me/sendMail", $body);
 
             return $response->successful();
@@ -248,7 +281,7 @@ class MicrosoftGraphConnector
 
         if ($connected) {
             try {
-                $response = Http::withToken($this->accessToken)
+                $response = $this->client()
                     ->get("{$this->baseUrl}/me");
 
                 if ($response->successful()) {
@@ -262,5 +295,11 @@ class MicrosoftGraphConnector
         }
 
         return ['success' => false, 'message' => 'Failed to connect to Microsoft Graph'];
+    }
+
+    private function client(): PendingRequest
+    {
+        return Http::withToken((string) $this->accessToken)
+            ->withHeaders(['Prefer' => 'IdType="ImmutableId"']);
     }
 }

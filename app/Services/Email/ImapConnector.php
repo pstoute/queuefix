@@ -5,11 +5,13 @@ namespace App\Services\Email;
 use App\Models\Mailbox;
 use Illuminate\Support\Facades\Log;
 
-class ImapConnector
+class ImapConnector implements InboundEmailConnector
 {
     private $connection;
 
     private Mailbox $mailbox;
+
+    private ?int $uidValidity = null;
 
     public function connect(Mailbox $mailbox): bool
     {
@@ -36,6 +38,17 @@ class ImapConnector
                 return false;
             }
 
+            $status = @imap_status($this->connection, $mailboxPath, SA_UIDVALIDITY);
+
+            if (! $status || ! isset($status->uidvalidity) || (int) $status->uidvalidity < 1) {
+                Log::error('IMAP UIDVALIDITY unavailable', ['mailbox_id' => $mailbox->id]);
+                $this->disconnect();
+
+                return false;
+            }
+
+            $this->uidValidity = (int) $status->uidvalidity;
+
             return true;
         } catch (\Throwable $e) {
             Log::error('IMAP connection error', [
@@ -53,9 +66,9 @@ class ImapConnector
             return [];
         }
 
-        $criteria = $since
-            ? 'SINCE "'.$since->format('d-M-Y').'"'
-            : 'UNSEEN';
+        // Unseen state is the retry cursor. A timestamp filter could permanently
+        // skip a message whose dispatch or acknowledgement previously failed.
+        $criteria = 'UNSEEN';
 
         $emails = imap_search($this->connection, $criteria);
 
@@ -82,6 +95,12 @@ class ImapConnector
 
     private function parseEmail(int $emailNumber): array
     {
+        $uid = imap_uid($this->connection, $emailNumber);
+
+        if (! $uid || ! $this->uidValidity) {
+            throw new \UnexpectedValueException('IMAP message is missing a stable provider identity.');
+        }
+
         $header = imap_headerinfo($this->connection, $emailNumber);
         $structure = imap_fetchstructure($this->connection, $emailNumber);
 
@@ -100,9 +119,9 @@ class ImapConnector
         $inReplyTo = $this->extractHeader($rawHeader, 'In-Reply-To');
         $references = $this->extractHeader($rawHeader, 'References');
 
-        imap_setflag_full($this->connection, (string) $emailNumber, '\\Seen');
-
         return [
+            'provider_message_id' => "imap:INBOX:{$this->uidValidity}:{$uid}",
+            'provider_remote_id' => (string) $uid,
             'from_email' => $fromAddress,
             'from_name' => $fromName ? imap_utf8($fromName) : null,
             'to_email' => $toAddress,
@@ -117,12 +136,38 @@ class ImapConnector
         ];
     }
 
+    /**
+     * @param  array<string, mixed>  $emailData
+     */
+    public function acknowledge(array $emailData): bool
+    {
+        $uid = (int) ($emailData['provider_remote_id'] ?? 0);
+        $providerMessageId = trim((string) ($emailData['provider_message_id'] ?? ''));
+        $expectedProviderMessageId = "imap:INBOX:{$this->uidValidity}:{$uid}";
+
+        if (! $this->connection || ! $this->uidValidity || $uid < 1 || ! hash_equals($expectedProviderMessageId, $providerMessageId)) {
+            return false;
+        }
+
+        try {
+            return imap_setflag_full($this->connection, (string) $uid, '\\Seen', ST_UID);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to mark IMAP message as seen', [
+                'mailbox_id' => $this->mailbox->id,
+                'provider_message_id' => $emailData['provider_message_id'] ?? 'unknown',
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
     private function getBody(int $emailNumber, object $structure): array
     {
         $body = ['text' => null, 'html' => null];
 
         if ($structure->type === 0) {
-            $content = imap_fetchbody($this->connection, $emailNumber, '1');
+            $content = imap_fetchbody($this->connection, $emailNumber, '1', FT_PEEK);
             $content = $this->decodeContent($content, $structure->encoding);
 
             if ($structure->subtype === 'PLAIN') {
@@ -133,7 +178,7 @@ class ImapConnector
         } elseif ($structure->type === 1) {
             foreach ($structure->parts as $index => $part) {
                 $section = (string) ($index + 1);
-                $content = imap_fetchbody($this->connection, $emailNumber, $section);
+                $content = imap_fetchbody($this->connection, $emailNumber, $section, FT_PEEK);
                 $content = $this->decodeContent($content, $part->encoding);
 
                 if ($part->subtype === 'PLAIN') {
@@ -177,7 +222,7 @@ class ImapConnector
                 }
 
                 $section = (string) ($index + 1);
-                $content = imap_fetchbody($this->connection, $emailNumber, $section);
+                $content = imap_fetchbody($this->connection, $emailNumber, $section, FT_PEEK);
                 $content = $this->decodeContent($content, $part->encoding);
 
                 $attachments[] = [

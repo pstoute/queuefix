@@ -6,14 +6,19 @@ use App\Enums\MessageType;
 use App\Enums\TicketStatus;
 use App\Models\Attachment;
 use App\Models\Customer;
+use App\Models\InboundEmailReceipt;
 use App\Models\Mailbox;
 use App\Models\MailboxAlias;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\TicketService;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
+use RuntimeException;
+use Throwable;
+use UnexpectedValueException;
 
 class EmailProcessorService
 {
@@ -21,18 +26,81 @@ class EmailProcessorService
         private TicketService $ticketService,
     ) {}
 
-    public function processInboundEmail(array $emailData, Mailbox $mailbox): Ticket
+    public function processInboundEmail(array $emailData, Mailbox $mailbox): ?Ticket
     {
-        $customer = $this->findOrCreateCustomer($emailData);
-        $existingTicket = $this->findExistingTicket($emailData, $customer, $mailbox);
+        $idempotencyKey = $this->idempotencyKey($emailData, $mailbox);
+        $existingReceipt = $this->findReceipt($mailbox, $idempotencyKey);
 
-        if ($existingTicket) {
-            return $this->appendToTicket($existingTicket, $emailData, $customer);
+        if ($existingReceipt) {
+            return $existingReceipt->ticket;
         }
 
-        $departmentId = $this->resolveDepartment($emailData, $mailbox);
+        $storedAttachmentPaths = [];
 
-        return $this->createNewTicket($emailData, $customer, $mailbox, $departmentId);
+        try {
+            return DB::transaction(function () use ($emailData, $mailbox, $idempotencyKey, &$storedAttachmentPaths) {
+                $receipt = InboundEmailReceipt::create([
+                    'mailbox_id' => $mailbox->id,
+                    'idempotency_key' => $idempotencyKey,
+                ]);
+
+                try {
+                    $customer = $this->findOrCreateCustomer($emailData);
+                    $existingTicket = $this->findExistingTicket($emailData, $customer, $mailbox);
+
+                    $ticket = $existingTicket
+                        ? $this->appendToTicket($existingTicket, $emailData, $customer, $idempotencyKey, $storedAttachmentPaths)
+                        : $this->createNewTicket(
+                            $emailData,
+                            $customer,
+                            $mailbox,
+                            $this->resolveDepartment($emailData, $mailbox),
+                            $idempotencyKey,
+                            $storedAttachmentPaths,
+                        );
+
+                    $receipt->update(['ticket_id' => $ticket->id]);
+
+                    return $ticket;
+                } catch (Throwable $exception) {
+                    // Clean up while this transaction still owns the receipt's
+                    // unique-key lock, before a competing retry can write here.
+                    $this->deleteStoredAttachments($storedAttachmentPaths);
+                    $storedAttachmentPaths = [];
+
+                    throw $exception;
+                }
+            });
+        } catch (UniqueConstraintViolationException $exception) {
+            $winningReceipt = $this->findReceipt($mailbox, $idempotencyKey);
+
+            if ($winningReceipt) {
+                return $winningReceipt->ticket;
+            }
+            throw $exception;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $emailData
+     */
+    private function idempotencyKey(array $emailData, Mailbox $mailbox): string
+    {
+        $providerMessageId = trim((string) ($emailData['provider_message_id'] ?? ''));
+
+        if ($providerMessageId === '') {
+            throw new UnexpectedValueException('Inbound email is missing its provider message identity.');
+        }
+
+        return hash('sha256', $mailbox->id."\0".$providerMessageId);
+    }
+
+    private function findReceipt(Mailbox $mailbox, string $idempotencyKey): ?InboundEmailReceipt
+    {
+        return InboundEmailReceipt::with('ticket')
+            ->where('mailbox_id', $mailbox->id)
+            ->where('idempotency_key', $idempotencyKey)
+            ->first();
     }
 
     private function findOrCreateCustomer(array $emailData): Customer
@@ -104,8 +172,17 @@ class EmailProcessorService
         return $mailbox->department_id;
     }
 
-    private function createNewTicket(array $emailData, Customer $customer, Mailbox $mailbox, ?string $departmentId = null): Ticket
-    {
+    /**
+     * @param  list<string>  $storedAttachmentPaths
+     */
+    private function createNewTicket(
+        array $emailData,
+        Customer $customer,
+        Mailbox $mailbox,
+        ?string $departmentId,
+        string $idempotencyKey,
+        array &$storedAttachmentPaths,
+    ): Ticket {
         $ticket = $this->ticketService->createTicket([
             'subject' => $emailData['subject'] ?? '(No Subject)',
             'body' => $emailData['body_html'] ?? $emailData['body_text'] ?? '',
@@ -125,14 +202,27 @@ class EmailProcessorService
                 'references' => $refs,
             ]);
 
-            $this->processAttachments($message, $emailData['attachments'] ?? []);
+            $this->processAttachments(
+                $message,
+                $emailData['attachments'] ?? [],
+                $idempotencyKey,
+                $storedAttachmentPaths,
+            );
         }
 
         return $ticket;
     }
 
-    private function appendToTicket(Ticket $ticket, array $emailData, Customer $customer): Ticket
-    {
+    /**
+     * @param  list<string>  $storedAttachmentPaths
+     */
+    private function appendToTicket(
+        Ticket $ticket,
+        array $emailData,
+        Customer $customer,
+        string $idempotencyKey,
+        array &$storedAttachmentPaths,
+    ): Ticket {
         if (in_array($ticket->status, [TicketStatus::Resolved, TicketStatus::Closed])) {
             $this->ticketService->updateStatus($ticket, TicketStatus::Open);
         }
@@ -153,18 +243,40 @@ class EmailProcessorService
             'references' => $refs,
         ]);
 
-        $this->processAttachments($message, $emailData['attachments'] ?? []);
+        $this->processAttachments(
+            $message,
+            $emailData['attachments'] ?? [],
+            $idempotencyKey,
+            $storedAttachmentPaths,
+        );
 
         return $ticket->fresh();
     }
 
-    private function processAttachments(Message $message, array $attachments): void
-    {
-        foreach ($attachments as $attachment) {
+    /**
+     * @param  list<string>  $storedAttachmentPaths
+     */
+    private function processAttachments(
+        Message $message,
+        array $attachments,
+        string $idempotencyKey,
+        array &$storedAttachmentPaths,
+    ): void {
+        foreach ($attachments as $index => $attachment) {
             $filename = $attachment['filename'] ?? 'unnamed';
-            $path = 'attachments/'.$message->ticket_id.'/'.Str::uuid().'_'.$filename;
+            $extension = preg_replace('/[^a-zA-Z0-9]/', '', pathinfo($filename, PATHINFO_EXTENSION));
+            $storageName = hash('sha256', $idempotencyKey."\0".$index);
+            $path = 'attachments/inbound/'.$idempotencyKey.'/'.$storageName;
 
-            Storage::disk('local')->put($path, $attachment['content']);
+            if ($extension !== '') {
+                $path .= '.'.strtolower($extension);
+            }
+
+            if (! Storage::disk('local')->put($path, $attachment['content'])) {
+                throw new RuntimeException('Unable to store inbound email attachment.');
+            }
+
+            $storedAttachmentPaths[] = $path;
 
             Attachment::create([
                 'message_id' => $message->id,
@@ -173,6 +285,16 @@ class EmailProcessorService
                 'mime_type' => $attachment['mime_type'] ?? 'application/octet-stream',
                 'size' => strlen($attachment['content']),
             ]);
+        }
+    }
+
+    /**
+     * @param  list<string>  $paths
+     */
+    private function deleteStoredAttachments(array $paths): void
+    {
+        if ($paths !== []) {
+            Storage::disk('local')->delete($paths);
         }
     }
 
