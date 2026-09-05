@@ -329,6 +329,100 @@ namespace {
             ->and(ImapFunctionState::$fetchBodySections)->toBe([]);
     });
 
+    test('IMAP rechecks aggregate actual bytes when structure metadata underreports them', function () {
+        config(['attachments.max_body_bytes' => 10]);
+        ImapFunctionState::$structure = (object) [
+            'type' => 1,
+            'parts' => [
+                (object) ['type' => 0, 'subtype' => 'PLAIN', 'encoding' => 0, 'bytes' => 1],
+                (object) ['type' => 0, 'subtype' => 'HTML', 'encoding' => 0, 'bytes' => 1],
+            ],
+        ];
+        ImapFunctionState::$bodyBySection = [
+            '1' => '123456',
+            '2' => '12345',
+        ];
+        $message = imapConnectorForTest()->fetchEmail([
+            'provider_message_id' => 'imap:INBOX:123:456',
+            'provider_remote_id' => '456',
+            'uid_validity' => 123,
+        ]);
+
+        expect($message['body_text'])->toContain('omitted')
+            ->and($message['body_html'])->toBeNull()
+            ->and(ImapFunctionState::$fetchBodySections)->toBe(['1', '2']);
+    });
+
+    test('IMAP admits a transfer-encoded body exactly at the configured limit', function () {
+        config(['attachments.max_body_bytes' => 10]);
+        ImapFunctionState::$structure = (object) [
+            'type' => 0,
+            'subtype' => 'PLAIN',
+            'encoding' => 3,
+            'bytes' => strlen(base64_encode('1234567890')),
+        ];
+        ImapFunctionState::$bodyBySection = ['1' => base64_encode('1234567890')];
+        $message = imapConnectorForTest()->fetchEmail([
+            'provider_message_id' => 'imap:INBOX:123:456',
+            'provider_remote_id' => '456',
+            'uid_validity' => 123,
+        ]);
+
+        expect($message['body_text'])->toBe('1234567890')
+            ->and($message['body_html'])->toBeNull();
+    });
+
+    test('IMAP terminally omits a MIME tree over the traversal limits', function () {
+        config([
+            'attachments.max_mime_depth' => 1,
+            'attachments.max_mime_parts' => 10,
+        ]);
+        ImapFunctionState::$structure = (object) [
+            'type' => 1,
+            'parts' => [(object) [
+                'type' => 1,
+                'parts' => [(object) [
+                    'type' => 0,
+                    'subtype' => 'PLAIN',
+                    'encoding' => 0,
+                    'bytes' => 6,
+                ]],
+            ]],
+        ];
+        $message = imapConnectorForTest()->fetchEmail([
+            'provider_message_id' => 'imap:INBOX:123:456',
+            'provider_remote_id' => '456',
+            'uid_validity' => 123,
+        ]);
+
+        expect($message['body_text'])->toContain('omitted')
+            ->and($message['attachments'])->toBe([])
+            ->and($message['attachment_rejection']['reason_code'])->toBe('invalid_metadata')
+            ->and(ImapFunctionState::$fetchBodySections)->toBe([]);
+    });
+
+    test('IMAP rejects a wide MIME root before scheduling all children', function () {
+        config(['attachments.max_mime_parts' => 2]);
+        ImapFunctionState::$structure = (object) [
+            'type' => 1,
+            'parts' => array_fill(0, 100, (object) [
+                'type' => 0,
+                'subtype' => 'PLAIN',
+                'encoding' => 0,
+                'bytes' => 1,
+            ]),
+        ];
+        $message = imapConnectorForTest()->fetchEmail([
+            'provider_message_id' => 'imap:INBOX:123:456',
+            'provider_remote_id' => '456',
+            'uid_validity' => 123,
+        ]);
+
+        expect($message['body_text'])->toContain('omitted')
+            ->and($message['attachment_rejection']['reason_code'])->toBe('invalid_metadata')
+            ->and(ImapFunctionState::$fetchBodySections)->toBe([]);
+    });
+
     test('IMAP treats attachment content fetch failure as retryable instead of an empty attachment', function () {
         ImapFunctionState::$bodyBySection = ['2' => false];
         $connector = imapConnectorForTest();

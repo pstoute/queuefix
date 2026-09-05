@@ -21,9 +21,14 @@ class MicrosoftGraphConnector implements InboundEmailConnector
 
     private InboundAttachmentPolicy $attachmentPolicy;
 
-    public function __construct(?InboundAttachmentPolicy $attachmentPolicy = null)
-    {
+    private InboundBodyPolicy $bodyPolicy;
+
+    public function __construct(
+        ?InboundAttachmentPolicy $attachmentPolicy = null,
+        ?InboundBodyPolicy $bodyPolicy = null,
+    ) {
         $this->attachmentPolicy = $attachmentPolicy ?? new InboundAttachmentPolicy;
+        $this->bodyPolicy = $bodyPolicy ?? new InboundBodyPolicy;
     }
 
     public function connect(Mailbox $mailbox): bool
@@ -149,17 +154,20 @@ class MicrosoftGraphConnector implements InboundEmailConnector
 
         $encodedMessageId = rawurlencode($messageId);
         $response = $this->client()->get("{$this->baseUrl}/me/messages/{$encodedMessageId}", [
-            '$select' => 'id,subject,from,toRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments,internetMessageId',
+            '$select' => 'id,subject,from,toRecipients,receivedDateTime,internetMessageHeaders,hasAttachments,internetMessageId',
         ]);
 
         if (! $response->successful()) {
             throw new \RuntimeException('Microsoft Graph message fetch failed.');
         }
 
-        return $this->parseMessage($response->json());
+        $body = $this->fetchBody($encodedMessageId);
+
+        return $this->parseMessage($response->json(), $body);
     }
 
-    private function parseMessage(array $msg): array
+    /** @param array{text: ?string, html: ?string}|null $body */
+    private function parseMessage(array $msg, ?array $body = null): array
     {
         $providerMessageId = trim((string) ($msg['id'] ?? ''));
 
@@ -174,6 +182,11 @@ class MicrosoftGraphConnector implements InboundEmailConnector
             $attachmentResult = $this->fetchAttachments($msg['id']);
         }
 
+        $body ??= $this->bodyPolicy->fromProviderContent(
+            $msg['body']['contentType'] ?? null,
+            $msg['body']['content'] ?? null,
+        );
+
         $emailData = [
             'provider_message_id' => 'microsoft:'.$providerMessageId,
             'provider_remote_id' => $providerMessageId,
@@ -181,8 +194,8 @@ class MicrosoftGraphConnector implements InboundEmailConnector
             'from_name' => $msg['from']['emailAddress']['name'] ?? null,
             'to_email' => strtolower($msg['toRecipients'][0]['emailAddress']['address'] ?? ''),
             'subject' => $msg['subject'] ?? null,
-            'body_text' => strip_tags($msg['body']['content'] ?? ''),
-            'body_html' => ($msg['body']['contentType'] ?? '') === 'html' ? ($msg['body']['content'] ?? null) : null,
+            'body_text' => $body['text'],
+            'body_html' => $body['html'],
             'message_id' => $msg['internetMessageId'] ?? $headers['Message-ID'] ?? null,
             'in_reply_to' => $headers['In-Reply-To'] ?? null,
             'references' => $headers['References'] ?? null,
@@ -195,6 +208,52 @@ class MicrosoftGraphConnector implements InboundEmailConnector
         }
 
         return $emailData;
+    }
+
+    /** @return array{text: ?string, html: ?string} */
+    private function fetchBody(string $encodedMessageId): array
+    {
+        $response = $this->client()
+            ->withOptions(['stream' => true])
+            ->get("{$this->baseUrl}/me/messages/{$encodedMessageId}", ['$select' => 'body']);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('Microsoft Graph message body fetch failed.');
+        }
+
+        $stream = $response->toPsrResponse()->getBody();
+        $maxEnvelopeBytes = $this->bodyPolicy->maxGraphEnvelopeBytes();
+        $json = '';
+
+        while (! $stream->eof() && strlen($json) <= $maxEnvelopeBytes) {
+            $bytesToRead = min(8192, $maxEnvelopeBytes + 1 - strlen($json));
+            $chunk = $stream->read($bytesToRead);
+
+            if ($chunk === '') {
+                throw new \RuntimeException('Microsoft Graph message body stream stopped before completion.');
+            }
+
+            $json .= $chunk;
+        }
+
+        if (strlen($json) > $maxEnvelopeBytes) {
+            return $this->bodyPolicy->omitted();
+        }
+
+        try {
+            $payload = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException $exception) {
+            throw new \RuntimeException('Microsoft Graph message body response was invalid.', previous: $exception);
+        }
+
+        if (! is_array($payload)) {
+            throw new \RuntimeException('Microsoft Graph message body response was invalid.');
+        }
+
+        return $this->bodyPolicy->fromProviderContent(
+            $payload['body']['contentType'] ?? null,
+            $payload['body']['content'] ?? null,
+        );
     }
 
     /**

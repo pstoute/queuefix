@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\InboundEmailReceipt;
 use App\Models\Mailbox;
 use App\Services\Email\EmailProcessorService;
+use App\Services\Email\InboundBodyPolicy;
 use App\Services\Email\MailboxConnectorFactory;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -68,8 +69,11 @@ class ProcessInboundEmailJob implements ShouldQueue
         }
     }
 
-    public function handle(EmailProcessorService $processor, MailboxConnectorFactory $connectorFactory): void
-    {
+    public function handle(
+        EmailProcessorService $processor,
+        MailboxConnectorFactory $connectorFactory,
+        ?InboundBodyPolicy $bodyPolicy = null,
+    ): void {
         $mailbox = Mailbox::find($this->mailboxId);
 
         if (! $mailbox) {
@@ -98,6 +102,16 @@ class ProcessInboundEmailJob implements ShouldQueue
 
             if (! $receiptExists) {
                 $emailData = $connector->fetchEmail($this->providerReference);
+                $body = ($bodyPolicy ?? new InboundBodyPolicy)->normalize(
+                    $emailData['body_text'] ?? null,
+                    $emailData['body_html'] ?? null,
+                );
+                if (array_key_exists('body_text', $emailData) || $body['text'] !== null) {
+                    $emailData['body_text'] = $body['text'];
+                }
+                if (array_key_exists('body_html', $emailData) || $body['html'] !== null) {
+                    $emailData['body_html'] = $body['html'];
+                }
                 $actualIdentity = trim((string) ($emailData['provider_message_id'] ?? ''));
 
                 if ($actualIdentity === '' || ! hash_equals($expectedIdentity, $actualIdentity)) {

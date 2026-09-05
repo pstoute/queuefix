@@ -1,9 +1,11 @@
 <?php
 
 use App\Models\Attachment;
+use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Ticket;
+use App\Services\Email\EmailProcessorService;
 use App\Services\Email\MicrosoftGraphConnector;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -102,7 +104,7 @@ test('Graph uses immutable provider IDs and acknowledges only after fetching', f
         ->and($messages[0]['provider_message_id'])->toBe('microsoft:immutable/id+123=')
         ->and($messages[0]['provider_remote_id'])->toBe('immutable/id+123=');
 
-    Http::assertSentCount(2);
+    Http::assertSentCount(3);
     Http::assertSent(function (Request $request) {
         parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
 
@@ -111,6 +113,13 @@ test('Graph uses immutable provider IDs and acknowledges only after fetching', f
             && ($query['$select'] ?? null) === 'id'
             && $request->hasHeader('Prefer', 'IdType="ImmutableId"');
     });
+    Http::assertSent(function (Request $request) {
+        parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+        return $request->method() === 'GET'
+            && str_contains($request->url(), '/me/messages/immutable%2Fid%2B123%3D?')
+            && ($query['$select'] ?? null) === 'body';
+    });
 
     expect($connector->acknowledge($messages[0]))->toBeTrue();
 
@@ -118,6 +127,88 @@ test('Graph uses immutable provider IDs and acknowledges only after fetching', f
         && str_ends_with($request->url(), '/me/messages/immutable%2Fid%2B123%3D')
         && $request->hasHeader('Prefer', 'IdType="ImmutableId"')
         && $request->data() === ['isRead' => true]);
+});
+
+test('Graph omits a body one byte over the configured limit', function () {
+    config(['attachments.max_body_bytes' => 10]);
+    $fixture = graphMessageFixture('provider-oversized-body', false);
+    $fixture['body'] = ['contentType' => 'text', 'content' => '12345678901'];
+
+    $message = invokeGraphMessageParsing(new MicrosoftGraphConnector, $fixture);
+
+    expect($message['body_text'])->toContain('omitted')
+        ->and($message['body_html'])->toBeNull();
+});
+
+test('Graph admits text and HTML exactly at the configured limit', function (string $contentType) {
+    config(['attachments.max_body_bytes' => 10]);
+    $fixture = graphMessageFixture("provider-exact-{$contentType}", false);
+    $fixture['body'] = ['contentType' => $contentType, 'content' => '1234567890'];
+
+    $message = invokeGraphMessageParsing(new MicrosoftGraphConnector, $fixture);
+
+    expect($message[$contentType === 'html' ? 'body_html' : 'body_text'])->toBe('1234567890');
+
+    if ($contentType === 'html') {
+        expect($message['body_text'])->toBe('');
+    }
+})->with(['text', 'html']);
+
+test('Graph exact-limit HTML appends to an existing ticket without retrying', function () {
+    config(['attachments.max_body_bytes' => 10]);
+    $mailbox = Mailbox::factory()->create();
+    $customer = Customer::factory()->create(['email' => 'customer@example.com']);
+    $ticket = Ticket::factory()->create([
+        'mailbox_id' => $mailbox->id,
+        'customer_id' => $customer->id,
+    ]);
+    Message::factory()->create([
+        'ticket_id' => $ticket->id,
+        'message_id' => '<original@example.com>',
+    ]);
+    $fixture = graphMessageFixture('provider-html-reply', false);
+    $fixture['body'] = ['contentType' => 'html', 'content' => '<b>123</b>'];
+    $fixture['internetMessageHeaders'] = [[
+        'name' => 'In-Reply-To',
+        'value' => '<original@example.com>',
+    ]];
+    $message = invokeGraphMessageParsing(new MicrosoftGraphConnector, $fixture);
+
+    $result = app(EmailProcessorService::class)->processInboundEmail($message, $mailbox);
+    $reply = Message::query()
+        ->where('ticket_id', $ticket->id)
+        ->where('body_html', '<b>123</b>')
+        ->sole();
+
+    expect($result?->is($ticket))->toBeTrue()
+        ->and($ticket->messages()->count())->toBe(2)
+        ->and($reply->body_text)->toBe('')
+        ->and($reply->body_html)->toBe('<b>123</b>');
+});
+
+test('Graph streams a body response only to a bounded envelope', function () {
+    config(['attachments.max_body_bytes' => 10]);
+    Http::fake(function (Request $request) {
+        parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+        if (($query['$select'] ?? null) === 'body') {
+            return Http::response(json_encode([
+                'body' => ['contentType' => 'text', 'content' => str_repeat('x', 100_000)],
+            ], JSON_THROW_ON_ERROR));
+        }
+
+        return Http::response(graphMessageFixture('provider-stream-limit', false));
+    });
+
+    $connector = new MicrosoftGraphConnector;
+    expect($connector->connect(graphMailbox()))->toBeTrue();
+    $message = $connector->fetchEmail([
+        'provider_message_id' => 'microsoft:provider-stream-limit',
+        'provider_remote_id' => 'provider-stream-limit',
+    ]);
+
+    expect($message['body_text'])->toContain('omitted')
+        ->and($message['body_html'])->toBeNull();
 });
 
 test('Graph rejects attachment metadata over the count limit before content fetch', function () {
@@ -337,4 +428,10 @@ function graphMessageFixture(string $id, bool $hasAttachments): array
         'hasAttachments' => $hasAttachments,
         'internetMessageId' => null,
     ];
+}
+
+/** @param array<string, mixed> $message */
+function invokeGraphMessageParsing(MicrosoftGraphConnector $connector, array $message): array
+{
+    return (new ReflectionClass($connector))->getMethod('parseMessage')->invoke($connector, $message);
 }

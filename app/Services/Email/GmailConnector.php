@@ -10,6 +10,8 @@ use Google\Service\Gmail;
 use Google\Service\Gmail\MessagePart;
 use Google\Service\Gmail\ModifyMessageRequest;
 use Illuminate\Support\Facades\Log;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\StreamInterface;
 use Symfony\Component\Mime\Email;
 
 class GmailConnector implements InboundEmailConnector
@@ -20,9 +22,14 @@ class GmailConnector implements InboundEmailConnector
 
     private InboundAttachmentPolicy $attachmentPolicy;
 
-    public function __construct(?InboundAttachmentPolicy $attachmentPolicy = null)
-    {
+    private InboundBodyPolicy $bodyPolicy;
+
+    public function __construct(
+        ?InboundAttachmentPolicy $attachmentPolicy = null,
+        ?InboundBodyPolicy $bodyPolicy = null,
+    ) {
         $this->attachmentPolicy = $attachmentPolicy ?? new InboundAttachmentPolicy;
+        $this->bodyPolicy = $bodyPolicy ?? new InboundBodyPolicy;
     }
 
     public function connect(Mailbox $mailbox): bool
@@ -116,10 +123,31 @@ class GmailConnector implements InboundEmailConnector
             throw new \UnexpectedValueException('Gmail message is missing a stable provider identity.');
         }
 
-        $message = $this->service->users_messages->get('me', $messageId, ['format' => 'full']);
+        $metadata = $this->fetchBoundedMessage($messageId, [
+            'format' => 'metadata',
+            'metadataHeaders' => ['From', 'To', 'Delivered-To', 'Subject', 'Message-ID', 'In-Reply-To', 'References', 'Date'],
+        ]);
+
+        if ($metadata === null) {
+            throw new \RuntimeException('Gmail message metadata exceeded the provider hydration limit.');
+        }
+
+        $estimatedBytes = filter_var($metadata->getSizeEstimate(), FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 0],
+        ]);
+
+        if ($estimatedBytes === false || $estimatedBytes > $this->bodyPolicy->maxProviderMessageBytes()) {
+            return $this->omittedMessage($metadata, $messageId, $estimatedBytes === false ? 0 : $estimatedBytes);
+        }
+
+        $message = $this->fetchBoundedMessage($messageId, ['format' => 'full']);
+        if ($message === null) {
+            return $this->omittedMessage($metadata, $messageId, $estimatedBytes);
+        }
+
         $headers = $this->extractHeaders($message->getPayload()->getHeaders());
 
-        $body = $this->extractBody($message->getPayload());
+        $body = $this->extractBody($message->getPayload(), $messageId);
         $attachmentResult = $this->extractAttachments($message->getPayload(), $messageId);
 
         $emailData = [
@@ -143,6 +171,97 @@ class GmailConnector implements InboundEmailConnector
         }
 
         return $emailData;
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
+     */
+    private function fetchBoundedMessage(string $messageId, array $options): ?Gmail\Message
+    {
+        $client = $this->service->getClient();
+        $wasDeferred = $client->shouldDefer();
+
+        try {
+            $client->setDefer(true);
+            $request = $this->service->users_messages->get('me', $messageId, $options);
+        } finally {
+            $client->setDefer($wasDeferred);
+        }
+
+        if (! $request instanceof RequestInterface) {
+            throw new \RuntimeException('Gmail message request could not be prepared safely.');
+        }
+
+        $response = $client->authorize()->send($request, [
+            'http_errors' => false,
+            'stream' => true,
+        ]);
+
+        if ($response->getStatusCode() < 200 || $response->getStatusCode() >= 300) {
+            throw new \RuntimeException('Gmail message fetch failed.');
+        }
+
+        $json = $this->readBoundedStream($response->getBody(), $this->bodyPolicy->maxProviderMessageBytes());
+        if ($json === null) {
+            return null;
+        }
+
+        try {
+            $payload = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException $exception) {
+            throw new \RuntimeException('Gmail message response was invalid.', previous: $exception);
+        }
+
+        if (! is_array($payload)) {
+            throw new \RuntimeException('Gmail message response was invalid.');
+        }
+
+        return new Gmail\Message($payload);
+    }
+
+    private function readBoundedStream(StreamInterface $stream, int $maxBytes): ?string
+    {
+        $content = '';
+
+        while (! $stream->eof() && strlen($content) <= $maxBytes) {
+            $bytesToRead = min(8192, $maxBytes + 1 - strlen($content));
+            $chunk = $stream->read($bytesToRead);
+
+            if ($chunk === '') {
+                throw new \RuntimeException('Gmail message stream stopped before completion.');
+            }
+
+            $content .= $chunk;
+        }
+
+        return strlen($content) > $maxBytes ? null : $content;
+    }
+
+    /** @return array<string, mixed> */
+    private function omittedMessage(Gmail\Message $metadata, string $messageId, int $reportedBytes): array
+    {
+        $headers = $this->extractHeaders($metadata->getPayload()->getHeaders());
+
+        return [
+            'provider_message_id' => 'gmail:'.$messageId,
+            'provider_remote_id' => $messageId,
+            'from_email' => $this->parseEmailAddress($headers['From'] ?? ''),
+            'from_name' => $this->parseEmailName($headers['From'] ?? ''),
+            'to_email' => $this->parseEmailAddress($headers['To'] ?? $headers['Delivered-To'] ?? ''),
+            'subject' => $headers['Subject'] ?? null,
+            'body_text' => InboundBodyPolicy::OMITTED_TEXT,
+            'body_html' => null,
+            'message_id' => $headers['Message-ID'] ?? $headers['Message-Id'] ?? null,
+            'in_reply_to' => $headers['In-Reply-To'] ?? null,
+            'references' => $headers['References'] ?? null,
+            'date' => $headers['Date'] ?? null,
+            'attachments' => [],
+            'attachment_rejection' => [
+                'reason_code' => 'message_too_large',
+                'reported_count' => 0,
+                'reported_bytes' => min(2_147_483_647, max(0, $reportedBytes)),
+            ],
+        ];
     }
 
     /**
@@ -183,29 +302,101 @@ class GmailConnector implements InboundEmailConnector
         return $result;
     }
 
-    private function extractBody($payload): array
+    private function extractBody(MessagePart $payload, ?string $messageId = null): array
     {
         $body = ['text' => null, 'html' => null];
+        $declaredBytes = 0;
+        $actualBytes = 0;
+        $partCount = 0;
+        $scheduledPartCount = 1;
+        $stack = [[$payload, 0]];
 
-        if ($payload->getMimeType() === 'text/plain' && $payload->getBody()->getData()) {
-            $body['text'] = $this->decodeBase64Url($payload->getBody()->getData());
-        } elseif ($payload->getMimeType() === 'text/html' && $payload->getBody()->getData()) {
-            $body['html'] = $this->decodeBase64Url($payload->getBody()->getData());
-        }
+        while ($stack !== []) {
+            [$part, $depth] = array_pop($stack);
+            $partCount++;
 
-        if ($payload->getParts()) {
-            foreach ($payload->getParts() as $part) {
-                $partBody = $this->extractBody($part);
-                if ($partBody['text']) {
-                    $body['text'] = $partBody['text'];
+            if (! $this->bodyPolicy->allowsMimeNode($depth, $partCount)) {
+                return $this->bodyPolicy->omitted();
+            }
+
+            $partBody = $part->getBody();
+            $mimeType = strtolower((string) $part->getMimeType());
+            $encodedContent = $partBody ? (string) $partBody->getData() : '';
+
+            if ($this->isBodyPart($part, $mimeType)) {
+                $declaredSize = filter_var($partBody?->getSize(), FILTER_VALIDATE_INT, [
+                    'options' => ['min_range' => 0],
+                ]);
+
+                if ($declaredSize === false
+                    || ! $this->bodyPolicy->allowsAdditionalBytes($declaredBytes, $declaredSize)) {
+                    return $this->bodyPolicy->omitted();
                 }
-                if ($partBody['html']) {
-                    $body['html'] = $partBody['html'];
+
+                $declaredBytes += $declaredSize;
+
+                if ($encodedContent === '') {
+                    $attachmentId = $partBody ? trim((string) $partBody->getAttachmentId()) : '';
+
+                    if ($attachmentId === '' || $messageId === null || ! $this->service) {
+                        if ($declaredSize === 0) {
+                            $body[$mimeType === 'text/html' ? 'html' : 'text'] = '';
+                        } else {
+                            return $this->bodyPolicy->omitted();
+                        }
+                    } else {
+                        $externalBody = $this->service->users_messages_attachments->get('me', $messageId, $attachmentId);
+                        $encodedContent = (string) $externalBody->getData();
+                    }
                 }
+
+                if (strlen($encodedContent) > $this->bodyPolicy->maxEncodedBytes($actualBytes)) {
+                    return $this->bodyPolicy->omitted();
+                }
+
+                try {
+                    $decodedContent = $this->decodeBase64Url($encodedContent);
+                } catch (AttachmentRejected) {
+                    return $this->bodyPolicy->omitted();
+                }
+
+                if (! $this->bodyPolicy->allowsAdditionalBytes($actualBytes, strlen($decodedContent))) {
+                    return $this->bodyPolicy->omitted();
+                }
+
+                $actualBytes += strlen($decodedContent);
+                $body[$mimeType === 'text/html' ? 'html' : 'text'] = $decodedContent;
+            }
+
+            $children = $part->getParts() ?: [];
+            if (count($children) > $this->bodyPolicy->maxMimeParts() - $scheduledPartCount) {
+                return $this->bodyPolicy->omitted();
+            }
+            $scheduledPartCount += count($children);
+
+            for ($index = count($children) - 1; $index >= 0; $index--) {
+                $stack[] = [$children[$index], $depth + 1];
             }
         }
 
-        return $body;
+        return $this->bodyPolicy->normalize($body['text'], $body['html']);
+    }
+
+    private function isBodyPart(MessagePart $part, string $mimeType): bool
+    {
+        if (! in_array($mimeType, ['text/plain', 'text/html'], true)
+            || trim((string) $part->getFilename()) !== '') {
+            return false;
+        }
+
+        foreach ($part->getHeaders() ?: [] as $header) {
+            if (strtolower((string) $header->getName()) === 'content-disposition'
+                && preg_match('/^\s*attachment(?:\s*;|\s*$)/i', (string) $header->getValue()) === 1) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -214,9 +405,9 @@ class GmailConnector implements InboundEmailConnector
     private function extractAttachments(MessagePart $payload, string $messageId): array
     {
         $descriptors = [];
-        $this->collectAttachmentDescriptors($payload, $descriptors);
 
         try {
+            $this->collectAttachmentDescriptors($payload, $descriptors);
             $mailbox = isset($this->mailbox) ? $this->mailbox : null;
             $this->attachmentPolicy->assertMetadata($descriptors, $mailbox);
         } catch (AttachmentRejected $exception) {
@@ -259,8 +450,20 @@ class GmailConnector implements InboundEmailConnector
     /** @param list<array{attachment_id: string, filename: string, mime_type: string, size: mixed}> $descriptors */
     private function collectAttachmentDescriptors(MessagePart $payload, array &$descriptors): void
     {
-        foreach ($payload->getParts() ?: [] as $part) {
-            $attachmentId = trim((string) $part->getBody()->getAttachmentId());
+        $partCount = 0;
+        $scheduledPartCount = 1;
+        $stack = [[$payload, 0]];
+
+        while ($stack !== []) {
+            [$part, $depth] = array_pop($stack);
+            $partCount++;
+
+            if (! $this->bodyPolicy->allowsMimeNode($depth, $partCount)) {
+                throw new AttachmentRejected('invalid_metadata', 'The MIME structure exceeded the configured safety limit.');
+            }
+
+            $partBody = $part->getBody();
+            $attachmentId = $partBody ? trim((string) $partBody->getAttachmentId()) : '';
             $filename = (string) $part->getFilename();
 
             if ($filename !== '' && $attachmentId !== '') {
@@ -268,11 +471,19 @@ class GmailConnector implements InboundEmailConnector
                     'attachment_id' => $attachmentId,
                     'filename' => $filename,
                     'mime_type' => (string) $part->getMimeType(),
-                    'size' => $part->getBody()->getSize(),
+                    'size' => $partBody->getSize(),
                 ];
             }
 
-            $this->collectAttachmentDescriptors($part, $descriptors);
+            $children = $part->getParts() ?: [];
+            if (count($children) > $this->bodyPolicy->maxMimeParts() - $scheduledPartCount) {
+                throw new AttachmentRejected('invalid_metadata', 'The MIME structure exceeded the configured safety limit.');
+            }
+            $scheduledPartCount += count($children);
+
+            for ($index = count($children) - 1; $index >= 0; $index--) {
+                $stack[] = [$children[$index], $depth + 1];
+            }
         }
     }
 

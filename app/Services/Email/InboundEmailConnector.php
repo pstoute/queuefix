@@ -17,7 +17,9 @@ interface InboundEmailConnector
     public function fetchNewEmailReferences(?\DateTimeInterface $since = null): iterable;
 
     /**
-     * Hydrate exactly one provider message inside its processing job.
+     * Hydrate exactly one provider message inside its processing job. Returned
+     * text and HTML bodies must satisfy the shared aggregate body policy or use
+     * its canonical terminal omission value.
      *
      * @param  array<string, scalar|null>  $providerReference
      * @return array<string, mixed>

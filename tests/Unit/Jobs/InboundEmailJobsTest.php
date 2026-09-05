@@ -205,3 +205,65 @@ test('provider attachment rejection is committed and acknowledged without poison
         ->and($attachment->path)->toBeNull()
         ->and($attachment->getRawOriginal('rejection_reason'))->toBe('file_too_large');
 });
+
+test('a safely omitted provider body is committed and acknowledged once', function () {
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'gmail:provider-oversized-body',
+        'provider_remote_id' => 'provider-oversized-body',
+    ];
+    $email = [
+        ...$providerReference,
+        'from_email' => 'attacker@example.com',
+        'to_email' => $mailbox->email,
+        'subject' => 'Oversized body',
+        'body_text' => '[Inbound message body omitted because it exceeded the configured safety limit.]',
+        'body_html' => null,
+        'attachments' => [],
+    ];
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->once()->andReturnTrue();
+    $connector->shouldReceive('fetchEmail')->once()->with($providerReference)->andReturn($email);
+    $connector->shouldReceive('acknowledge')->once()->with($email)->andReturnTrue();
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->once()->andReturn($connector);
+
+    (new ProcessInboundEmailJob($providerReference, $mailbox->id))
+        ->handle(app(EmailProcessorService::class), $connectorFactory);
+
+    expect(InboundEmailReceipt::query()->count())->toBe(1)
+        ->and(Message::query()->sole()->body_text)->toContain('omitted');
+});
+
+test('processing enforces the body policy when a connector violates its contract', function () {
+    config(['attachments.max_body_bytes' => 10]);
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'microsoft:provider-unbounded-body',
+        'provider_remote_id' => 'provider-unbounded-body',
+    ];
+    $email = [
+        ...$providerReference,
+        'from_email' => 'attacker@example.com',
+        'to_email' => $mailbox->email,
+        'subject' => 'Connector contract violation',
+        'body_text' => '12345678901',
+        'attachments' => [],
+    ];
+    $acknowledgement = [
+        ...$email,
+        'body_text' => '[Inbound message body omitted because it exceeded the configured safety limit.]',
+    ];
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->once()->andReturnTrue();
+    $connector->shouldReceive('fetchEmail')->once()->with($providerReference)->andReturn($email);
+    $connector->shouldReceive('acknowledge')->once()->with($acknowledgement)->andReturnTrue();
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->once()->andReturn($connector);
+
+    (new ProcessInboundEmailJob($providerReference, $mailbox->id))
+        ->handle(app(EmailProcessorService::class), $connectorFactory);
+
+    expect(Message::query()->sole()->body_text)->toContain('omitted')
+        ->and(InboundEmailReceipt::query()->count())->toBe(1);
+});
