@@ -250,8 +250,8 @@ class TicketController extends Controller
 
         $messageData = [
             'type' => $type,
-            'body_text' => $isInternalNote ? $validated['body'] : strip_tags($validated['body']),
-            'body_html' => $isInternalNote ? null : $validated['body'],
+            'body_text' => $validated['body'],
+            'body_html' => null,
             'sender_type' => User::class,
             'sender_id' => $actor->id,
         ];

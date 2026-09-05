@@ -1,18 +1,6 @@
 parameters:
 	ignoreErrors:
 		-
-			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Controllers/Agent/CannedResponseController.php
-
-		-
-			message: '#^Using nullsafe property access "\?\-\>ticket_number" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 1
-			path: app/Http/Controllers/Agent/CannedResponseController.php
-
-		-
 			message: '#^Method App\\Http\\Controllers\\Auth\\SocialiteController\:\:redirect\(\) should return Illuminate\\Http\\RedirectResponse but returns Symfony\\Component\\HttpFoundation\\RedirectResponse\.$#'
 			identifier: return.type
 			count: 1
@@ -89,24 +77,6 @@ parameters:
 			identifier: method.unresolvableReturnType
 			count: 2
 			path: app/Http/Controllers/Settings/MailboxController.php
-
-		-
-			message: '#^Result of \|\| is always true\.$#'
-			identifier: booleanOr.alwaysTrue
-			count: 1
-			path: app/Http/Middleware/EnsureAdmin.php
-
-		-
-			message: '#^Strict comparison using \!\=\= between ''admin''\|''agent'' and App\\Enums\\UserRole\:\:Admin will always evaluate to true\.$#'
-			identifier: notIdentical.alwaysTrue
-			count: 1
-			path: app/Http/Middleware/EnsureAdmin.php
-
-		-
-			message: '#^Unreachable statement \- code above always terminates\.$#'
-			identifier: deadCode.unreachable
-			count: 1
-			path: app/Http/Middleware/EnsureAdmin.php
 
 		-
 			message: '#^Method App\\Jobs\\ProcessInboundEmailJob\:\:__construct\(\) has parameter \$emailData with no value type specified in iterable type array\.$#'
@@ -319,18 +289,6 @@ parameters:
 			path: app/Models/Ticket.php
 
 		-
-			message: '#^Method App\\Models\\Ticket\:\:assignee\(\) return type with generic class Illuminate\\Database\\Eloquent\\Relations\\BelongsTo does not specify its types\: TRelatedModel, TDeclaringModel$#'
-			identifier: missingType.generics
-			count: 1
-			path: app/Models/Ticket.php
-
-		-
-			message: '#^Method App\\Models\\Ticket\:\:department\(\) return type with generic class Illuminate\\Database\\Eloquent\\Relations\\BelongsTo does not specify its types\: TRelatedModel, TDeclaringModel$#'
-			identifier: missingType.generics
-			count: 1
-			path: app/Models/Ticket.php
-
-		-
 			message: '#^Method App\\Models\\Ticket\:\:messages\(\) return type with generic class Illuminate\\Database\\Eloquent\\Relations\\HasMany does not specify its types\: TRelatedModel, TDeclaringModel$#'
 			identifier: missingType.generics
 			count: 1
@@ -359,18 +317,6 @@ parameters:
 			identifier: missingType.generics
 			count: 1
 			path: app/Models/User.php
-
-		-
-			message: '#^Strict comparison using \=\=\= between ''admin''\|''agent'' and App\\Enums\\UserRole\:\:Admin will always evaluate to false\.$#'
-			identifier: identical.alwaysFalse
-			count: 3
-			path: app/Policies/SettingsPolicy.php
-
-		-
-			message: '#^Strict comparison using \=\=\= between ''admin''\|''agent'' and App\\Enums\\UserRole\:\:Admin will always evaluate to false\.$#'
-			identifier: identical.alwaysFalse
-			count: 1
-			path: app/Policies/TicketPolicy.php
 
 		-
 			message: '#^Method App\\Services\\Email\\EmailProcessorService\:\:appendToTicket\(\) has parameter \$emailData with no value type specified in iterable type array\.$#'

@@ -10,6 +10,7 @@ import { Label } from '@/Components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/Components/ui/avatar';
 import { Separator } from '@/Components/ui/separator';
 import { ScrollArea } from '@/Components/ui/scroll-area';
+import CannedResponsePicker, { insertAtCursor } from '@/Components/CannedResponsePicker';
 import {
   Select,
   SelectContent,
@@ -17,14 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/Components/ui/select';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/Components/ui/popover';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime, formatDateTime } from '@/lib/hooks';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ArrowLeft,
   Send,
@@ -85,6 +81,7 @@ export default function TicketShow({
   const [mergeTicketId, setMergeTicketId] = useState('');
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [splitSubject, setSplitSubject] = useState('');
+  const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { data, setData, post, processing, reset } = useForm({
     body: '',
@@ -101,6 +98,22 @@ export default function TicketShow({
         setData('type', 'reply');
         setReplyType('reply');
       },
+    });
+  };
+
+  const handleCannedResponseInsert = (body: string) => {
+    const textarea = replyTextareaRef.current;
+    const insertion = insertAtCursor(
+      data.body,
+      body,
+      textarea?.selectionStart ?? data.body.length,
+      textarea?.selectionEnd ?? data.body.length,
+    );
+    setData('body', insertion.value);
+
+    window.requestAnimationFrame(() => {
+      replyTextareaRef.current?.focus();
+      replyTextareaRef.current?.setSelectionRange(insertion.cursor, insertion.cursor);
     });
   };
 
@@ -552,13 +565,17 @@ export default function TicketShow({
                               <div className="whitespace-pre-wrap break-words text-sm">
                                 {renderInternalNote(message)}
                               </div>
-                            ) : (
+                            ) : message.body_html ? (
                               <div
                                 className="prose prose-sm max-w-none dark:prose-invert"
                                 dangerouslySetInnerHTML={{
-                                  __html: message.body_html || message.body_text || '',
+                                  __html: message.body_html,
                                 }}
                               />
+                            ) : (
+                              <div className="whitespace-pre-wrap break-words text-sm">
+                                {message.body_text}
+                              </div>
                             )}
 
                             {!isInternal && message.cc_recipients && message.cc_recipients.length > 0 && (
@@ -632,6 +649,7 @@ export default function TicketShow({
                     </div>
 
                     <Textarea
+                      ref={replyTextareaRef}
                       placeholder={
                         replyType === 'reply'
                           ? 'Type your reply...'
@@ -705,18 +723,7 @@ export default function TicketShow({
 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button type="button" variant="outline" size="sm">
-                              Canned Responses
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-80">
-                            <p className="text-sm text-muted-foreground">
-                              Canned responses feature coming soon
-                            </p>
-                          </PopoverContent>
-                        </Popover>
+                        <CannedResponsePicker ticketId={ticket.id} onInsert={handleCannedResponseInsert} />
                       </div>
 
                       <Button type="submit" disabled={processing || !data.body.trim()}>

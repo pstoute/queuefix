@@ -247,6 +247,8 @@ export interface CannedResponse {
     id: string;
     title: string;
     body: string;
+    is_active: boolean;
+    visibility: 'all_agents' | 'creator_only';
     created_by: string;
     creator?: User;
     created_at: string;

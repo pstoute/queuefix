@@ -135,6 +135,8 @@ class Ticket extends Model
 
     /**
      * Get the user assigned to the ticket.
+     *
+     * @return BelongsTo<User, $this>
      */
     public function assignee(): BelongsTo
     {
@@ -150,6 +152,7 @@ class Ticket extends Model
         return $this->belongsTo(Mailbox::class);
     }
 
+    /** @return BelongsTo<Department, $this> */
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);

@@ -71,6 +71,8 @@ Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(
     Route::post('tickets/{ticket}/watch', [TicketWatcherController::class, 'store'])->name('tickets.watch.store');
     Route::delete('tickets/{ticket}/watch', [TicketWatcherController::class, 'destroy'])->name('tickets.watch.destroy');
     Route::patch('tickets/{ticket}/read', TicketReadStateController::class)->name('tickets.read');
+    Route::get('tickets/{ticket}/canned-responses', [CannedResponseController::class, 'search'])->name('tickets.canned-responses.index');
+    Route::post('tickets/{ticket}/canned-responses/{cannedResponse}/render', [CannedResponseController::class, 'render'])->name('tickets.canned-responses.render');
     Route::delete('tickets/{ticket}/cc-recipients/{ccRecipient}', [TicketCcRecipientController::class, 'destroy'])->name('tickets.cc-recipients.destroy');
     Route::get('tickets/{ticket}/messages/{message}', [TicketMessageController::class, 'show'])->name('tickets.messages.show');
     Route::patch('tickets/{ticket}/messages/{message}/internal-note', [TicketMessageController::class, 'update'])->name('tickets.messages.internal-note.update');
@@ -86,7 +88,6 @@ Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(
     Route::post('canned-responses', [CannedResponseController::class, 'store'])->name('canned-responses.store');
     Route::put('canned-responses/{cannedResponse}', [CannedResponseController::class, 'update'])->name('canned-responses.update');
     Route::delete('canned-responses/{cannedResponse}', [CannedResponseController::class, 'destroy'])->name('canned-responses.destroy');
-    Route::get('canned-responses/{cannedResponse}/render', [CannedResponseController::class, 'render'])->name('canned-responses.render');
 });
 
 // Settings (admin only)
@@ -135,9 +136,9 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('sett
     Route::put('users/{user}', [UserManagementController::class, 'update'])->name('users.update');
 
     Route::get('canned-responses', [CannedResponseController::class, 'index'])->name('canned-responses.index');
-    Route::post('canned-responses', [CannedResponseController::class, 'store'])->name('settings.canned-responses.store');
-    Route::put('canned-responses/{cannedResponse}', [CannedResponseController::class, 'update'])->name('settings.canned-responses.update');
-    Route::delete('canned-responses/{cannedResponse}', [CannedResponseController::class, 'destroy'])->name('settings.canned-responses.destroy');
+    Route::post('canned-responses', [CannedResponseController::class, 'store'])->name('canned-responses.store');
+    Route::put('canned-responses/{cannedResponse}', [CannedResponseController::class, 'update'])->name('canned-responses.update');
+    Route::delete('canned-responses/{cannedResponse}', [CannedResponseController::class, 'destroy'])->name('canned-responses.destroy');
 });
 
 // Profile

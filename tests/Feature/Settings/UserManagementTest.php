@@ -89,7 +89,7 @@ test('configuring a support manager is independent from administrative access', 
         'is_support_manager' => true,
     ])->assertRedirect()->assertSessionHas('success');
 
-    expect($user->fresh()->role)->toBe(UserRole::Agent->value)
+    expect($user->fresh()->role)->toBe(UserRole::Agent)
         ->and($user->fresh()->is_support_manager)->toBeTrue();
 });
 

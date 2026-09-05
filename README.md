@@ -119,6 +119,12 @@ Provider failures use the following retry policy:
 
 A successful provider fetch clears its fetch failure state, updates the success time, records a provider cursor where the connector exposes one, and schedules the next normal polling interval. Persisted and rendered error messages are deliberately generic: credentials, tokens, provider response bodies, exception text, and email content are never copied into health state or application logs.
 
+### Canned responses
+
+Active canned responses can be searched, previewed, and inserted at the current cursor position from the agent reply composer. Insertion never sends the reply: agents can continue editing and explicitly submit only the final message body. Responses may be available to all agents or only their creator.
+
+Templates support only the following insertion-time placeholders: `{{customer.name}}`, `{{ticket.ticket_number}}`, `{{ticket.subject}}`, `{{department.name}}`, `{{assignee.name}}`, and `{{current_date}}`. Unknown placeholders are rejected instead of being replaced with blank text. Placeholder values and template markup are inserted and persisted as plain text, not executable HTML.
+
 ### Generic IMAP/SMTP
 
 1. Go to **Settings > Mailboxes > Add Mailbox**
