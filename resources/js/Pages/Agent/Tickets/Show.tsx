@@ -9,6 +9,7 @@ import { Label } from '@/Components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/Components/ui/avatar';
 import { Separator } from '@/Components/ui/separator';
 import { ScrollArea } from '@/Components/ui/scroll-area';
+import { SafeMessageBody } from '@/Components/SafeMessageBody';
 import {
   Select,
   SelectContent,
@@ -239,11 +240,10 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                             </div>
 
                             {/* Message body */}
-                            <div
+                            <SafeMessageBody
                               className="prose prose-sm max-w-none dark:prose-invert"
-                              dangerouslySetInnerHTML={{
-                                __html: message.body_html || message.body_text || '',
-                              }}
+                              bodyHtml={message.body_html}
+                              bodyText={message.body_text}
                             />
 
                             {/* Attachments */}
