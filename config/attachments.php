@@ -2,6 +2,9 @@
 
 return [
     'disk' => env('ATTACHMENT_DISK', 'private'),
+    'operation_lock_store' => env('ATTACHMENT_OPERATION_LOCK_STORE', 'file'),
+    'operation_lock_seconds' => (int) env('ATTACHMENT_OPERATION_LOCK_SECONDS', 3600),
+    'operation_lock_wait_seconds' => (int) env('ATTACHMENT_OPERATION_LOCK_WAIT_SECONDS', 10),
 
     'max_files_per_message' => (int) env('ATTACHMENT_MAX_FILES', 10),
     'max_file_bytes' => (int) env('ATTACHMENT_MAX_FILE_BYTES', 10 * 1024 * 1024),
