@@ -7,6 +7,7 @@ use Google\Client as GoogleClient;
 use Google\Service\Gmail;
 use Google\Service\Gmail\ModifyMessageRequest;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\Mime\Email;
 
 class GmailConnector implements InboundEmailConnector
 {
@@ -241,38 +242,28 @@ class GmailConnector implements InboundEmailConnector
         }
 
         try {
-            $boundary = uniqid('boundary_');
-            $rawMessage = "From: {$this->mailbox->email}\r\n";
-            $rawMessage .= "To: {$data['to']}\r\n";
-            $rawMessage .= "Subject: {$data['subject']}\r\n";
-            $rawMessage .= "MIME-Version: 1.0\r\n";
+            $email = (new Email)
+                ->from($this->mailbox->email)
+                ->to($data['to'])
+                ->subject($data['subject']);
 
-            if (! empty($data['headers'])) {
-                foreach ($data['headers'] as $name => $value) {
-                    if (! in_array(strtolower($name), ['from', 'to', 'subject', 'mime-version'])) {
-                        $rawMessage .= "{$name}: {$value}\r\n";
-                    }
+            if (! empty($data['html'])) {
+                $email->html($data['html']);
+            }
+
+            if (! empty($data['text'])) {
+                $email->text($data['text']);
+            }
+
+            $headers = array_change_key_case($data['headers'] ?? [], CASE_LOWER);
+            foreach (['in-reply-to' => 'In-Reply-To', 'references' => 'References'] as $key => $name) {
+                if (! empty($headers[$key])) {
+                    $email->getHeaders()->addHeader($name, (string) $headers[$key]);
                 }
             }
 
-            $rawMessage .= "Content-Type: multipart/alternative; boundary=\"{$boundary}\"\r\n\r\n";
-
-            if (! empty($data['text'])) {
-                $rawMessage .= "--{$boundary}\r\n";
-                $rawMessage .= "Content-Type: text/plain; charset=UTF-8\r\n\r\n";
-                $rawMessage .= $data['text']."\r\n";
-            }
-
-            if (! empty($data['html'])) {
-                $rawMessage .= "--{$boundary}\r\n";
-                $rawMessage .= "Content-Type: text/html; charset=UTF-8\r\n\r\n";
-                $rawMessage .= $data['html']."\r\n";
-            }
-
-            $rawMessage .= "--{$boundary}--";
-
             $gmailMessage = new Gmail\Message;
-            $gmailMessage->setRaw(rtrim(strtr(base64_encode($rawMessage), '+/', '-_'), '='));
+            $gmailMessage->setRaw(rtrim(strtr(base64_encode($email->toString()), '+/', '-_'), '='));
 
             $this->service->users_messages->send('me', $gmailMessage);
 
