@@ -47,7 +47,7 @@ foreach ($postgres['ports'] ?? [] as $port) {
     }
 }
 
-foreach (['app', 'queue', 'scheduler'] as $serviceName) {
+foreach (['app', 'migrate', 'queue', 'scheduler'] as $serviceName) {
     $service = $services[$serviceName] ?? [];
     $environment = $service['environment'] ?? [];
     $networks = $service['networks'] ?? [];
@@ -62,6 +62,29 @@ foreach (['app', 'queue', 'scheduler'] as $serviceName) {
 
     if (! array_key_exists('queuefix', $networks)) {
         $failures[] = "{$serviceName} must remain attached to the queuefix network.";
+    }
+}
+
+foreach (['app', 'queue', 'scheduler'] as $serviceName) {
+    if (($services[$serviceName]['depends_on']['migrate']['condition'] ?? null) !== 'service_completed_successfully') {
+        $failures[] = "{$serviceName} must wait for successful database migrations.";
+    }
+}
+
+$migrationCommand = $services['migrate']['command'] ?? [];
+
+if (! in_array('migrate', $migrationCommand, true)
+    || ! in_array('--force', $migrationCommand, true)) {
+    $failures[] = 'The migrate service must run non-interactive database migrations.';
+}
+
+if (in_array('--seed', $migrationCommand, true)) {
+    $failures[] = 'The automatic migrate service must not rerun the one-time demo seeder.';
+}
+
+foreach (['queue', 'scheduler'] as $serviceName) {
+    if (($services[$serviceName]['restart'] ?? null) !== 'unless-stopped') {
+        $failures[] = "{$serviceName} must restart unless explicitly stopped.";
     }
 }
 

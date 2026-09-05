@@ -24,9 +24,34 @@ services:
       - MAIL_HOST=mailpit
       - MAIL_PORT=1025
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+    networks:
+      - queuefix
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    command: php artisan migrate --force
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor
+    environment:
+      - APP_ENV=local
+      - DB_CONNECTION=pgsql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=queuefix
+      - DB_USERNAME=queuefix
+      - DB_PASSWORD=secret
+    depends_on:
+      postgres:
         condition: service_healthy
     networks:
       - queuefix
@@ -97,6 +122,7 @@ services:
       dockerfile: Dockerfile
       target: development
     command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+    restart: unless-stopped
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
@@ -110,6 +136,8 @@ services:
       - DB_PASSWORD=secret
       - REDIS_HOST=redis
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -123,6 +151,7 @@ services:
       dockerfile: Dockerfile
       target: development
     command: php artisan schedule:work
+    restart: unless-stopped
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
@@ -136,6 +165,8 @@ services:
       - DB_PASSWORD=secret
       - REDIS_HOST=redis
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

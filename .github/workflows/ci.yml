@@ -200,8 +200,10 @@ jobs:
       - name: Verify Docker images build
         run: |
           docker build --target development --tag queuefix-ci-development .
+          docker image inspect queuefix-ci-development --format '{{json .Config.Cmd}}' | grep -F -- '--no-reload'
           docker run --rm queuefix-ci-development sh -c 'pnpm exec esbuild --version >/dev/null'
           docker build --target production --tag queuefix-ci-production .
+          docker image inspect queuefix-ci-production --format '{{json .Config.Cmd}}' | grep -F -- '--no-reload'
           docker run --rm queuefix-ci-production sh -c "test -f public/build/manifest.json && grep -F 'rtl\\:flex-row-reverse' public/build/assets/*.css >/dev/null && ! command -v node && ! command -v pnpm && ! test -e node_modules"
 
       - name: Setup PHP
