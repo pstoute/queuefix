@@ -27,6 +27,10 @@ class AttachmentService
      * complete before the first durable object is written.
      *
      * @param  iterable<int, UploadedFile|array{filename?: mixed, mime_type?: mixed, content?: mixed}>  $sources
+     * @param  list<string>  $storedPaths
+     *
+     * @param-out list<string> $storedPaths
+     *
      * @return Collection<int, Attachment>
      */
     public function storeForMessage(
@@ -34,8 +38,7 @@ class AttachmentService
         iterable $sources,
         ?string $stableNamespace = null,
         array &$storedPaths = [],
-    ): Collection
-    {
+    ): Collection {
         $sourceList = collect($sources)->values();
         $maxFiles = (int) config('attachments.max_files_per_message');
 
@@ -72,7 +75,8 @@ class AttachmentService
             ->reject(fn (array $candidate): bool => $candidate['scan']->status === AttachmentScanStatus::Rejected)
             ->sum('size');
         $disk = Storage::disk((string) config('attachments.disk'));
-        $pathsCreatedHere = [];
+        /** @var Collection<int, string> $pathsCreatedHere */
+        $pathsCreatedHere = collect();
         $created = collect();
 
         try {
@@ -113,7 +117,7 @@ class AttachmentService
                         throw new AttachmentRejected('storage_failed', 'The attachment could not be stored safely.');
                     }
 
-                    $pathsCreatedHere[] = $path;
+                    $pathsCreatedHere->push($path);
                     $storedPaths[] = $path;
                     $created->push(Attachment::create([
                         'message_id' => $message->id,
@@ -131,9 +135,9 @@ class AttachmentService
                 return $created;
             });
         } catch (Throwable $exception) {
-            if ($pathsCreatedHere !== []) {
-                $disk->delete($pathsCreatedHere);
-                $storedPaths = array_values(array_diff($storedPaths, $pathsCreatedHere));
+            if ($pathsCreatedHere->isNotEmpty()) {
+                $disk->delete($pathsCreatedHere->all());
+                $storedPaths = array_values(array_diff($storedPaths, $pathsCreatedHere->all()));
             }
 
             throw $exception;

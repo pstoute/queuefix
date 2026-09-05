@@ -279,7 +279,7 @@ class MicrosoftGraphConnector implements InboundEmailConnector
 
         try {
             foreach ($descriptors as $descriptor) {
-                $attachmentId = trim((string) ($descriptor['id'] ?? ''));
+                $attachmentId = trim($descriptor['id']);
                 if ($attachmentId === '') {
                     throw new AttachmentRejected('invalid_metadata', 'An attachment did not include a stable provider identity.');
                 }

@@ -1,8 +1,8 @@
 <?php
 
+use App\Enums\AttachmentScanStatus;
 use App\Jobs\FetchEmailsJob;
 use App\Jobs\ProcessInboundEmailJob;
-use App\Enums\AttachmentScanStatus;
 use App\Models\Attachment;
 use App\Models\InboundEmailReceipt;
 use App\Models\Mailbox;

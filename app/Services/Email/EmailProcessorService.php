@@ -175,6 +175,8 @@ class EmailProcessorService
 
     /**
      * @param  list<string>  $storedAttachmentPaths
+     *
+     * @param-out list<string> $storedAttachmentPaths
      */
     private function createNewTicket(
         array $emailData,
@@ -217,6 +219,8 @@ class EmailProcessorService
 
     /**
      * @param  list<string>  $storedAttachmentPaths
+     *
+     * @param-out list<string> $storedAttachmentPaths
      */
     private function appendToTicket(
         Ticket $ticket,
@@ -257,7 +261,10 @@ class EmailProcessorService
     }
 
     /**
+     * @param  array{reason_code?: mixed, reported_count?: mixed, reported_bytes?: mixed}|null  $providerRejection
      * @param  list<string>  $storedAttachmentPaths
+     *
+     * @param-out list<string> $storedAttachmentPaths
      */
     private function processAttachments(
         Message $message,

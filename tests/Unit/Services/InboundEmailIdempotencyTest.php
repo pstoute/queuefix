@@ -9,8 +9,8 @@ use App\Models\Setting;
 use App\Models\SlaPolicy;
 use App\Models\SlaTimer;
 use App\Models\Ticket;
-use App\Services\Email\EmailProcessorService;
 use App\Services\Attachments\AttachmentService;
+use App\Services\Email\EmailProcessorService;
 use App\Services\TicketService;
 use Illuminate\Support\Facades\Storage;
 

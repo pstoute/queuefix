@@ -1,7 +1,7 @@
 <?php
 
-use App\Models\Mailbox;
 use App\Models\Attachment;
+use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Ticket;
 use App\Services\Email\MicrosoftGraphConnector;

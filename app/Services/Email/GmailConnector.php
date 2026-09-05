@@ -7,6 +7,7 @@ use App\Models\Mailbox;
 use App\Services\Attachments\InboundAttachmentPolicy;
 use Google\Client as GoogleClient;
 use Google\Service\Gmail;
+use Google\Service\Gmail\MessagePart;
 use Google\Service\Gmail\ModifyMessageRequest;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\Mime\Email;
@@ -210,7 +211,7 @@ class GmailConnector implements InboundEmailConnector
     /**
      * @return array{attachments: list<array{filename: string, content: string, mime_type: string, size: int}>, rejection: ?array{reason_code: string, reported_count: int, reported_bytes: int}}
      */
-    private function extractAttachments($payload, string $messageId): array
+    private function extractAttachments(MessagePart $payload, string $messageId): array
     {
         $descriptors = [];
         $this->collectAttachmentDescriptors($payload, $descriptors);
@@ -256,7 +257,7 @@ class GmailConnector implements InboundEmailConnector
     }
 
     /** @param list<array{attachment_id: string, filename: string, mime_type: string, size: mixed}> $descriptors */
-    private function collectAttachmentDescriptors($payload, array &$descriptors): void
+    private function collectAttachmentDescriptors(MessagePart $payload, array &$descriptors): void
     {
         foreach ($payload->getParts() ?: [] as $part) {
             $attachmentId = trim((string) $part->getBody()->getAttachmentId());

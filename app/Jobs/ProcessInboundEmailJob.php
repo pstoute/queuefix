@@ -20,6 +20,7 @@ class ProcessInboundEmailJob implements ShouldQueue
 
     public int $backoff = 30;
 
+    /** @param array<string, scalar|null> $providerReference */
     public function __construct(
         private array $providerReference,
         private string $mailboxId,

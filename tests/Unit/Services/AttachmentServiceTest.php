@@ -3,9 +3,9 @@
 use App\Contracts\AttachmentScanner;
 use App\Enums\AttachmentScanStatus;
 use App\Exceptions\AttachmentRejected;
-use App\Models\Message;
 use App\Models\Attachment;
 use App\Models\Mailbox;
+use App\Models\Message;
 use App\Models\Ticket;
 use App\Services\Attachments\AttachmentService;
 use App\Support\AttachmentScanResult;
