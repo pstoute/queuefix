@@ -94,6 +94,10 @@ php artisan schedule:work
 
 ## Email Provider Setup
 
+### Threading after a ticket split
+
+When messages are split into a new ticket, their `Message-ID` values move with them. Future email whose `In-Reply-To` or `References` header names one of those messages continues on the new ticket. Email that has no matching message reference and only contains the original ticket number continues on the source ticket. Outbound replies from the new ticket use its new ticket number, so subsequent replies remain on the split branch.
+
 ### Generic IMAP/SMTP
 
 1. Go to **Settings > Mailboxes > Add Mailbox**
