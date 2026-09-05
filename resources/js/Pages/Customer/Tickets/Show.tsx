@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Textarea } from '@/Components/ui/textarea';
 import { Separator } from '@/Components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/Components/ui/avatar';
+import { SafeMessageBody } from '@/Components/SafeMessageBody';
 import { format } from 'date-fns';
 import { Paperclip } from 'lucide-react';
 
@@ -134,18 +135,12 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
                                         </div>
                                     </CardHeader>
                                     <CardContent>
-                                        {message.body_html ? (
-                                            <div
-                                                className="prose prose-sm max-w-none"
-                                                dangerouslySetInnerHTML={{
-                                                    __html: message.body_html,
-                                                }}
-                                            />
-                                        ) : (
-                                            <div className="whitespace-pre-wrap text-gray-700">
-                                                {message.body_text}
-                                            </div>
-                                        )}
+                                        <SafeMessageBody
+                                            className="prose prose-sm max-w-none"
+                                            plainTextClassName="whitespace-pre-wrap text-gray-700"
+                                            bodyHtml={message.body_html}
+                                            bodyText={message.body_text}
+                                        />
                                         {message.attachments && message.attachments.length > 0 && (
                                             <div className="mt-4 space-y-2 border-t pt-3">
                                                 {message.attachments.map((attachment) => (
@@ -163,6 +158,9 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
                                                         </span>
                                                         {attachment.scan_status === 'pending' && (
                                                             <Badge variant="outline">Security scan pending</Badge>
+                                                        )}
+                                                        {attachment.scan_status === 'rejected' && (
+                                                            <Badge variant="destructive">Rejected</Badge>
                                                         )}
                                                     </div>
                                                 ))}

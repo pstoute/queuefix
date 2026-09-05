@@ -38,7 +38,7 @@ docker-compose exec app php artisan migrate --seed
 docker-compose exec app sh -c "pnpm install && pnpm build"
 ```
 
-Then open http://localhost:8000.
+Then open http://localhost:8000. Mailpit's development inbox is available only from the Docker host at http://127.0.0.1:8025.
 
 **Demo login:** `admin@example.com` / `password`
 
@@ -146,6 +146,8 @@ AWS WorkMail supports standard IMAP/SMTP. Use the **Generic IMAP** option with:
 
 ## OAuth Login Setup (for Agents)
 
+OAuth login is available only to active staff accounts that an administrator has already created in **Settings > Users**.
+
 ### Google OAuth
 
 1. In Google Cloud Console, create OAuth 2.0 credentials
@@ -176,6 +178,8 @@ AWS WorkMail supports standard IMAP/SMTP. Use the **Generic IMAP** option with:
 | `DB_DATABASE` | Database name | `queuefix` |
 | `QUEUE_CONNECTION` | Queue driver | `database` |
 | `MAIL_MAILER` | Mail driver | `smtp` |
+| `RATE_LIMITER_STORE` | Shared cache store for authentication rate limits | `database` |
+| `TRUSTED_PROXIES` | Comma-separated exact proxy IPs/CIDRs; leave empty for direct access | empty |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID | — |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth secret | — |
 | `MICROSOFT_CLIENT_ID` | Microsoft OAuth client ID | — |

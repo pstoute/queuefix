@@ -5,9 +5,18 @@ QueueFix sends every inbound-email and web-upload attachment through the same
 
 ## Limits and allowed formats
 
-The default limits are 10 files per message, 10 MB per file, and 25 MB for the
-combined message. They can be changed with the `ATTACHMENT_*` environment
-variables documented in `.env.example`.
+The default limits are 10 files per message, 10 MB per file, 25 MB for the
+combined message, 5 GB per mailbox, and 25 GB for the installation. They can be
+changed with the `ATTACHMENT_*` environment variables documented in
+`.env.example`.
+
+Mailbox connectors queue only stable provider message references. The
+processing job hydrates one message at a time, checks provider-owned count and
+size metadata before requesting attachment content, and rechecks actual bytes
+before storage. Storage admission is serialized so concurrent workers cannot
+race past the cumulative quotas. Messages rejected by attachment policy retain
+their body and a rejected metadata record, then complete provider
+acknowledgement instead of retrying forever.
 
 QueueFix accepts PDF, plain text, CSV, PNG, JPEG, GIF, WebP, and macro-free
 Office Open XML documents (`.docx`, `.xlsx`, and `.pptx`). It rejects generic

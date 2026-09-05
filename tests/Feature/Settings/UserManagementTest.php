@@ -9,7 +9,7 @@ use function Pest\Laravel\post;
 use function Pest\Laravel\put;
 
 beforeEach(function () {
-    $this->admin = User::factory()->admin()->create();
+    $this->admin = User::factory()->admin()->create()->fresh();
 });
 
 test('listing users', function () {

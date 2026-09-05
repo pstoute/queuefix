@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\AttachmentScanStatus;
 use App\Enums\TicketStatus;
+use App\Models\Attachment;
 use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\Message;
@@ -14,7 +16,17 @@ beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->ticketService = app(TicketService::class);
-    $this->emailProcessor = new EmailProcessorService($this->ticketService, app(AttachmentService::class));
+    $this->emailProcessor = new class($this->ticketService, app(AttachmentService::class)) extends EmailProcessorService
+    {
+        private int $providerMessageSequence = 0;
+
+        public function processInboundEmail(array $emailData, Mailbox $mailbox): ?Ticket
+        {
+            $emailData['provider_message_id'] ??= 'test:'.++$this->providerMessageSequence;
+
+            return parent::processInboundEmail($emailData, $mailbox);
+        }
+    };
 });
 
 test('creating new ticket from new sender', function () {
@@ -80,7 +92,10 @@ test('creating customer without name uses email prefix', function () {
 test('matching existing ticket by In-Reply-To header', function () {
     $mailbox = Mailbox::factory()->create();
     $customer = Customer::factory()->create();
-    $ticket = Ticket::factory()->create(['customer_id' => $customer->id]);
+    $ticket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
     $originalMessage = Message::factory()->create([
         'ticket_id' => $ticket->id,
         'message_id' => '<original-message@example.com>',
@@ -99,10 +114,43 @@ test('matching existing ticket by In-Reply-To header', function () {
     expect($ticket->messages()->count())->toBe(2);
 });
 
+test('matching ignores duplicate message IDs outside the sender and mailbox scope', function () {
+    $mailbox = Mailbox::factory()->create();
+    $customer = Customer::factory()->create();
+    $unrelatedTicket = Ticket::factory()->create();
+    $ticket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
+
+    Message::factory()->create([
+        'ticket_id' => $unrelatedTicket->id,
+        'message_id' => '<duplicate-message@example.com>',
+    ]);
+    Message::factory()->create([
+        'ticket_id' => $ticket->id,
+        'message_id' => '<duplicate-message@example.com>',
+    ]);
+
+    $resultTicket = $this->emailProcessor->processInboundEmail([
+        'from_email' => $customer->email,
+        'subject' => 'Re: Test',
+        'body_text' => 'This is the legitimate reply',
+        'in_reply_to' => '<duplicate-message@example.com>',
+    ], $mailbox);
+
+    expect($resultTicket->id)->toBe($ticket->id)
+        ->and($ticket->messages()->count())->toBe(2)
+        ->and($unrelatedTicket->messages()->count())->toBe(1);
+});
+
 test('matching existing ticket by References header', function () {
     $mailbox = Mailbox::factory()->create();
     $customer = Customer::factory()->create();
-    $ticket = Ticket::factory()->create(['customer_id' => $customer->id]);
+    $ticket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
     $originalMessage = Message::factory()->create([
         'ticket_id' => $ticket->id,
         'message_id' => '<first-message@example.com>',
@@ -123,7 +171,10 @@ test('matching existing ticket by References header', function () {
 test('matching existing ticket by References header as array', function () {
     $mailbox = Mailbox::factory()->create();
     $customer = Customer::factory()->create();
-    $ticket = Ticket::factory()->create(['customer_id' => $customer->id]);
+    $ticket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
     $originalMessage = Message::factory()->create([
         'ticket_id' => $ticket->id,
         'message_id' => '<first-message@example.com>',
@@ -146,6 +197,7 @@ test('matching existing ticket by subject line pattern', function () {
     $customer = Customer::factory()->create();
     $ticket = Ticket::factory()->create([
         'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
         'ticket_number' => 'QF-123',
     ]);
 
@@ -165,6 +217,7 @@ test('matching existing ticket by subject line pattern with different format', f
     $customer = Customer::factory()->create();
     $ticket = Ticket::factory()->create([
         'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
         'ticket_number' => 'QF-456',
     ]);
 
@@ -182,7 +235,10 @@ test('matching existing ticket by subject line pattern with different format', f
 test('reopening resolved ticket on customer reply', function () {
     $mailbox = Mailbox::factory()->create();
     $customer = Customer::factory()->create();
-    $ticket = Ticket::factory()->resolved()->create(['customer_id' => $customer->id]);
+    $ticket = Ticket::factory()->resolved()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
     $originalMessage = Message::factory()->create([
         'ticket_id' => $ticket->id,
         'message_id' => '<original@example.com>',
@@ -206,7 +262,10 @@ test('reopening resolved ticket on customer reply', function () {
 test('reopening closed ticket on customer reply', function () {
     $mailbox = Mailbox::factory()->create();
     $customer = Customer::factory()->create();
-    $ticket = Ticket::factory()->closed()->create(['customer_id' => $customer->id]);
+    $ticket = Ticket::factory()->closed()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
     $originalMessage = Message::factory()->create([
         'ticket_id' => $ticket->id,
         'message_id' => '<original@example.com>',
@@ -223,6 +282,68 @@ test('reopening closed ticket on customer reply', function () {
 
     $resultTicket->refresh();
     expect($resultTicket->status)->toBe(TicketStatus::Open);
+});
+
+test('thread identifiers cannot attach a different customer to an existing ticket', function (array $threadingData) {
+    $mailbox = Mailbox::factory()->create();
+    $victim = Customer::factory()->create(['email' => 'victim@example.com']);
+    $attacker = Customer::factory()->create(['email' => 'attacker@example.com']);
+    $ticket = Ticket::factory()->closed()->create([
+        'customer_id' => $victim->id,
+        'mailbox_id' => $mailbox->id,
+        'ticket_number' => 'QF-777',
+    ]);
+
+    Message::factory()->create([
+        'ticket_id' => $ticket->id,
+        'message_id' => '<victim-thread@example.com>',
+    ]);
+
+    $resultTicket = $this->emailProcessor->processInboundEmail([
+        'from_email' => $attacker->email,
+        'subject' => 'Attacker reply',
+        'body_text' => 'Unauthorized content',
+        ...$threadingData,
+    ], $mailbox);
+
+    expect($resultTicket->id)->not->toBe($ticket->id)
+        ->and($resultTicket->customer_id)->toBe($attacker->id)
+        ->and($resultTicket->mailbox_id)->toBe($mailbox->id)
+        ->and($ticket->fresh()->status)->toBe(TicketStatus::Closed)
+        ->and($ticket->messages()->count())->toBe(1);
+})->with([
+    'In-Reply-To' => [['in_reply_to' => '<victim-thread@example.com>']],
+    'References string' => [['references' => '<unrelated@example.com> <victim-thread@example.com>']],
+    'References array' => [['references' => ['<unrelated@example.com>', '<victim-thread@example.com>']]],
+    'ticket number in subject' => [['subject' => 'Re: [QF-777] Victim ticket']],
+]);
+
+test('thread identifiers cannot attach through a different mailbox', function () {
+    $ticketMailbox = Mailbox::factory()->create();
+    $receivingMailbox = Mailbox::factory()->create();
+    $customer = Customer::factory()->create();
+    $ticket = Ticket::factory()->resolved()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $ticketMailbox->id,
+    ]);
+
+    $message = Message::factory()->create([
+        'ticket_id' => $ticket->id,
+        'message_id' => '<other-mailbox@example.com>',
+    ]);
+
+    $resultTicket = $this->emailProcessor->processInboundEmail([
+        'from_email' => $customer->email,
+        'subject' => 'Re: Other mailbox',
+        'body_text' => 'Reply sent to a different inbox',
+        'in_reply_to' => $message->message_id,
+    ], $receivingMailbox);
+
+    expect($resultTicket->id)->not->toBe($ticket->id)
+        ->and($resultTicket->customer_id)->toBe($customer->id)
+        ->and($resultTicket->mailbox_id)->toBe($receivingMailbox->id)
+        ->and($ticket->fresh()->status)->toBe(TicketStatus::Resolved)
+        ->and($ticket->messages()->count())->toBe(1);
 });
 
 test('attachment processing creates attachment records', function () {
@@ -264,7 +385,7 @@ test('attachment processing creates attachment records', function () {
     ]);
 });
 
-test('attachment without filename is rejected without leaving a ticket', function () {
+test('invalid inbound attachment is terminally rejected while preserving the ticket body', function () {
     $mailbox = Mailbox::factory()->create();
 
     $emailData = [
@@ -279,11 +400,13 @@ test('attachment without filename is rejected without leaving a ticket', functio
         ],
     ];
 
-    expect(fn () => $this->emailProcessor->processInboundEmail($emailData, $mailbox))
-        ->toThrow(\App\Exceptions\AttachmentRejected::class);
+    $ticket = $this->emailProcessor->processInboundEmail($emailData, $mailbox);
+    $attachment = Attachment::query()->sole();
 
-    $this->assertDatabaseMissing('tickets', ['subject' => 'Test']);
-    $this->assertDatabaseCount('attachments', 0);
+    expect($ticket->subject)->toBe('Test')
+        ->and($attachment->scan_status)->toBe(AttachmentScanStatus::Rejected)
+        ->and($attachment->path)->toBeNull()
+        ->and($attachment->getRawOriginal('rejection_reason'))->toBe('unsafe_filename');
 });
 
 test('email without subject uses default subject', function () {

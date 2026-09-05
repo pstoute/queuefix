@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->alias([
+            'active' => \App\Http\Middleware\EnsureActiveStaff::class,
             'admin' => \App\Http\Middleware\EnsureAdmin::class,
         ]);
 

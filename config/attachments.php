@@ -6,6 +6,8 @@ return [
     'max_files_per_message' => (int) env('ATTACHMENT_MAX_FILES', 10),
     'max_file_bytes' => (int) env('ATTACHMENT_MAX_FILE_BYTES', 10 * 1024 * 1024),
     'max_message_bytes' => (int) env('ATTACHMENT_MAX_MESSAGE_BYTES', 25 * 1024 * 1024),
+    'max_mailbox_bytes' => (int) env('ATTACHMENT_MAX_MAILBOX_BYTES', 5 * 1024 * 1024 * 1024),
+    'max_installation_bytes' => (int) env('ATTACHMENT_MAX_INSTALLATION_BYTES', 25 * 1024 * 1024 * 1024),
     'max_office_entries' => 5000,
     'max_office_uncompressed_bytes' => 100 * 1024 * 1024,
     'max_office_compression_ratio' => 100,

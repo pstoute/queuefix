@@ -40,6 +40,7 @@ Route::middleware('guest')->group(function () {
     Route::get('auth/magic-link', [MagicLinkController::class, 'showForm'])
         ->name('auth.magic-link');
     Route::post('auth/magic-link', [MagicLinkController::class, 'send'])
+        ->middleware('throttle:magic-link')
         ->name('auth.magic-link.send');
 });
 Route::get('auth/magic-link/verify/{user}', [MagicLinkController::class, 'verify'])
@@ -47,7 +48,7 @@ Route::get('auth/magic-link/verify/{user}', [MagicLinkController::class, 'verify
     ->middleware('signed');
 
 // Agent dashboard routes
-Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(function () {
+Route::middleware(['auth', 'active', 'verified'])->prefix('agent')->name('agent.')->group(function () {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
     // Tickets
@@ -78,7 +79,7 @@ Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(
 });
 
 // Settings (admin only)
-Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('settings.')->group(function () {
+Route::middleware(['auth', 'active', 'verified', 'admin'])->prefix('settings')->name('settings.')->group(function () {
     Route::get('general', [GeneralSettingsController::class, 'index'])->name('general.index');
     Route::put('general', [GeneralSettingsController::class, 'update'])->name('general.update');
 
@@ -111,7 +112,7 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('sett
 });
 
 // Profile
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'active'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
@@ -121,7 +122,9 @@ Route::middleware('auth')->group(function () {
 Route::prefix('portal')->name('customer.')->group(function () {
     Route::middleware('guest:customer')->group(function () {
         Route::get('login', [CustomerAuthController::class, 'showLogin'])->name('login');
-        Route::post('login', [CustomerAuthController::class, 'sendMagicLink'])->name('login.send');
+        Route::post('login', [CustomerAuthController::class, 'sendMagicLink'])
+            ->middleware('throttle:magic-link')
+            ->name('login.send');
     });
 
     Route::get('auth/verify/{customer}', [CustomerAuthController::class, 'verify'])

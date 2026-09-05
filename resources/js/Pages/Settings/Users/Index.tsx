@@ -58,7 +58,7 @@ export default function UsersIndex({ users }: UsersIndexProps) {
 
     const handleInvite: FormEventHandler = (e) => {
         e.preventDefault();
-        post(route('settings.users.invite'), {
+        post(route('settings.users.store'), {
             onSuccess: () => {
                 reset();
                 setInviteDialogOpen(false);
@@ -67,13 +67,13 @@ export default function UsersIndex({ users }: UsersIndexProps) {
     };
 
     const toggleUserStatus = (userId: string, currentStatus: boolean) => {
-        router.patch(route('settings.users.update', userId), {
+        router.put(route('settings.users.update', userId), {
             is_active: !currentStatus,
         });
     };
 
     const updateUserRole = (userId: string, role: 'admin' | 'agent') => {
-        router.patch(route('settings.users.update', userId), { role });
+        router.put(route('settings.users.update', userId), { role });
     };
 
     const deleteUser = (userId: string) => {

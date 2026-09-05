@@ -4,6 +4,9 @@ use App\Contracts\AttachmentScanner;
 use App\Enums\AttachmentScanStatus;
 use App\Exceptions\AttachmentRejected;
 use App\Models\Message;
+use App\Models\Attachment;
+use App\Models\Mailbox;
+use App\Models\Ticket;
 use App\Services\Attachments\AttachmentService;
 use App\Support\AttachmentScanResult;
 use Illuminate\Support\Facades\Storage;
@@ -183,6 +186,54 @@ test('scanner rejection persists safe metadata without a storage object', functi
         ->and($attachment->rejection_reason)->toBe('scanner_rejected')
         ->and($attachment->path)->toBeNull();
     expect(Storage::disk('private')->allFiles())->toBe([]);
+});
+
+test('enforces the installation storage quota before writing', function () {
+    config([
+        'attachments.max_installation_bytes' => 5,
+        'attachments.max_mailbox_bytes' => 100,
+    ]);
+    Attachment::factory()->create(['size' => 4, 'path' => 'existing/file']);
+
+    expect(fn () => $this->service->storeForMessage($this->message, [[
+        'filename' => 'next.txt',
+        'content' => 'ok',
+    ]]))->toThrow(AttachmentRejected::class, 'installation limit');
+
+    expect(Storage::disk('private')->allFiles())->toBe([])
+        ->and(Attachment::query()->count())->toBe(1);
+});
+
+test('enforces each mailbox quota while allowing another mailbox', function () {
+    config([
+        'attachments.max_installation_bytes' => 100,
+        'attachments.max_mailbox_bytes' => 5,
+    ]);
+    $firstMailbox = Mailbox::factory()->create();
+    $secondMailbox = Mailbox::factory()->create();
+    $firstTicket = Ticket::factory()->create(['mailbox_id' => $firstMailbox->id]);
+    $secondTicket = Ticket::factory()->create(['mailbox_id' => $secondMailbox->id]);
+    $firstMessage = Message::factory()->create(['ticket_id' => $firstTicket->id]);
+    $secondMessage = Message::factory()->create(['ticket_id' => $secondTicket->id]);
+    Attachment::factory()->create([
+        'message_id' => $firstMessage->id,
+        'size' => 4,
+        'path' => 'existing/mailbox-file',
+    ]);
+
+    expect(fn () => $this->service->storeForMessage($firstMessage, [[
+        'filename' => 'blocked.txt',
+        'content' => 'ok',
+    ]]))->toThrow(AttachmentRejected::class, 'mailbox limit');
+
+    $stored = $this->service->storeForMessage($secondMessage, [[
+        'filename' => 'allowed.txt',
+        'content' => 'ok',
+    ]]);
+
+    expect($stored)->toHaveCount(1)
+        ->and($stored->sole()->message_id)->toBe($secondMessage->id)
+        ->and(Storage::disk('private')->allFiles())->toHaveCount(1);
 });
 
 /** @param array<string, string> $entries */

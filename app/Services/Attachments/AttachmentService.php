@@ -10,6 +10,7 @@ use App\Models\Message;
 use App\Support\AttachmentScanResult;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Throwable;
@@ -28,7 +29,12 @@ class AttachmentService
      * @param  iterable<int, UploadedFile|array{filename?: mixed, mime_type?: mixed, content?: mixed}>  $sources
      * @return Collection<int, Attachment>
      */
-    public function storeForMessage(Message $message, iterable $sources): Collection
+    public function storeForMessage(
+        Message $message,
+        iterable $sources,
+        ?string $stableNamespace = null,
+        array &$storedPaths = [],
+    ): Collection
     {
         $sourceList = collect($sources)->values();
         $maxFiles = (int) config('attachments.max_files_per_message');
@@ -62,58 +68,151 @@ class AttachmentService
             return $candidate;
         });
 
+        $storedBytes = (int) $prepared
+            ->reject(fn (array $candidate): bool => $candidate['scan']->status === AttachmentScanStatus::Rejected)
+            ->sum('size');
         $disk = Storage::disk((string) config('attachments.disk'));
-        $storedPaths = [];
+        $pathsCreatedHere = [];
         $created = collect();
 
         try {
-            foreach ($prepared as $candidate) {
-                if ($candidate['scan']->status === AttachmentScanStatus::Rejected) {
+            return DB::transaction(function () use (
+                $message,
+                $prepared,
+                $storedBytes,
+                $stableNamespace,
+                $disk,
+                &$storedPaths,
+                &$pathsCreatedHere,
+                $created,
+            ): Collection {
+                if ($storedBytes > 0) {
+                    $this->assertStorageQuota($message, $storedBytes);
+                }
+
+                foreach ($prepared as $index => $candidate) {
+                    if ($candidate['scan']->status === AttachmentScanStatus::Rejected) {
+                        $created->push(Attachment::create([
+                            'message_id' => $message->id,
+                            'filename' => $candidate['filename'],
+                            'path' => null,
+                            'mime_type' => $candidate['detected_mime_type'],
+                            'claimed_mime_type' => $candidate['claimed_mime_type'],
+                            'size' => $candidate['size'],
+                            'sha256' => $candidate['sha256'],
+                            'scan_status' => AttachmentScanStatus::Rejected,
+                            'rejection_reason' => 'scanner_rejected',
+                        ]));
+
+                        continue;
+                    }
+
+                    $path = $this->storagePath($message, $candidate['filename'], $index, $stableNamespace);
+
+                    if (! $disk->put($path, $candidate['contents'])) {
+                        throw new AttachmentRejected('storage_failed', 'The attachment could not be stored safely.');
+                    }
+
+                    $pathsCreatedHere[] = $path;
+                    $storedPaths[] = $path;
                     $created->push(Attachment::create([
                         'message_id' => $message->id,
                         'filename' => $candidate['filename'],
-                        'path' => null,
+                        'path' => $path,
                         'mime_type' => $candidate['detected_mime_type'],
                         'claimed_mime_type' => $candidate['claimed_mime_type'],
                         'size' => $candidate['size'],
                         'sha256' => $candidate['sha256'],
-                        'scan_status' => AttachmentScanStatus::Rejected,
-                        'rejection_reason' => 'scanner_rejected',
+                        'scan_status' => $candidate['scan']->status,
+                        'rejection_reason' => null,
                     ]));
-
-                    continue;
                 }
 
-                $path = sprintf('attachments/tickets/%s/%s', $message->ticket_id, Str::uuid());
-
-                if (! $disk->put($path, $candidate['contents'])) {
-                    throw new AttachmentRejected('storage_failed', 'The attachment could not be stored safely.');
-                }
-
-                $storedPaths[] = $path;
-                $created->push(Attachment::create([
-                    'message_id' => $message->id,
-                    'filename' => $candidate['filename'],
-                    'path' => $path,
-                    'mime_type' => $candidate['detected_mime_type'],
-                    'claimed_mime_type' => $candidate['claimed_mime_type'],
-                    'size' => $candidate['size'],
-                    'sha256' => $candidate['sha256'],
-                    'scan_status' => $candidate['scan']->status,
-                    'rejection_reason' => null,
-                ]));
-            }
+                return $created;
+            });
         } catch (Throwable $exception) {
-            foreach ($storedPaths as $storedPath) {
-                $disk->delete($storedPath);
+            if ($pathsCreatedHere !== []) {
+                $disk->delete($pathsCreatedHere);
+                $storedPaths = array_values(array_diff($storedPaths, $pathsCreatedHere));
             }
-
-            $created->each->delete();
 
             throw $exception;
         }
+    }
 
-        return $created;
+    /** @param array{reason_code?: mixed, reported_count?: mixed, reported_bytes?: mixed} $rejection */
+    public function recordInboundRejection(Message $message, array $rejection): Attachment
+    {
+        $reasonCode = is_string($rejection['reason_code'] ?? null)
+            ? Str::limit($rejection['reason_code'], 255, '')
+            : 'policy_rejected';
+        $reportedCount = max(1, (int) ($rejection['reported_count'] ?? 1));
+        $reportedBytes = max(0, min(2_147_483_647, (int) ($rejection['reported_bytes'] ?? 0)));
+
+        return Attachment::create([
+            'message_id' => $message->id,
+            'filename' => $reportedCount === 1 ? 'Rejected attachment' : "{$reportedCount} rejected attachments",
+            'path' => null,
+            'mime_type' => 'application/octet-stream',
+            'claimed_mime_type' => null,
+            'size' => $reportedBytes,
+            'sha256' => null,
+            'scan_status' => AttachmentScanStatus::Rejected,
+            'rejection_reason' => $reasonCode,
+        ]);
+    }
+
+    public function isTerminalRejection(AttachmentRejected $exception): bool
+    {
+        return ! in_array($exception->reasonCode, ['storage_failed', 'inspection_failed'], true);
+    }
+
+    private function storagePath(Message $message, string $filename, int $index, ?string $stableNamespace): string
+    {
+        if ($stableNamespace === null) {
+            return sprintf('attachments/tickets/%s/%s', $message->ticket_id, Str::uuid());
+        }
+
+        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $name = hash('sha256', $stableNamespace."\0".$index);
+
+        return 'attachments/inbound/'.$stableNamespace.'/'.$name.($extension === '' ? '' : '.'.$extension);
+    }
+
+    private function assertStorageQuota(Message $message, int $incomingBytes): void
+    {
+        $guard = DB::table('attachment_quota_locks')
+            ->where('id', 1)
+            ->lockForUpdate()
+            ->first();
+
+        if ($guard === null) {
+            throw new AttachmentRejected('quota_unavailable', 'Attachment storage admission is temporarily unavailable.');
+        }
+
+        $installationBytes = (int) Attachment::query()->whereNotNull('path')->sum('size');
+        $installationLimit = (int) config('attachments.max_installation_bytes');
+
+        if ($incomingBytes > $installationLimit - $installationBytes) {
+            throw new AttachmentRejected('installation_quota_exceeded', 'Attachment storage has reached the installation limit.');
+        }
+
+        $mailboxId = $message->ticket()->value('mailbox_id');
+        if ($mailboxId === null) {
+            return;
+        }
+
+        $mailboxBytes = (int) DB::table('attachments')
+            ->join('messages', 'messages.id', '=', 'attachments.message_id')
+            ->join('tickets', 'tickets.id', '=', 'messages.ticket_id')
+            ->whereNotNull('attachments.path')
+            ->where('tickets.mailbox_id', $mailboxId)
+            ->sum('attachments.size');
+        $mailboxLimit = (int) config('attachments.max_mailbox_bytes');
+
+        if ($incomingBytes > $mailboxLimit - $mailboxBytes) {
+            throw new AttachmentRejected('mailbox_quota_exceeded', 'Attachment storage has reached the mailbox limit.');
+        }
     }
 
     /**
