@@ -70,6 +70,7 @@ $app = $services['app'] ?? [];
 $postgres = $services['postgres'] ?? [];
 $mailpit = $services['mailpit'] ?? [];
 $appEnvironment = $app['environment'] ?? [];
+$queueEnvironment = $services['queue']['environment'] ?? [];
 $queuefixNetwork = $compose['networks']['queuefix'] ?? [];
 $ipamConfig = $queuefixNetwork['ipam']['config'][0] ?? [];
 $networkSubnet = (string) ($ipamConfig['subnet'] ?? '');
@@ -195,14 +196,16 @@ if (! array_key_exists('queuefix', $mailpit['networks'] ?? [])) {
 
 $expectedMailer = getenv('COMPOSE_EXPECTED_MAILER');
 
-if ($expectedMailer !== false
-    && ($appEnvironment['MAIL_MAILER'] ?? null) !== $expectedMailer) {
-    $failures[] = "The app must honor MAIL_MAILER={$expectedMailer}.";
-}
+foreach (['app' => $appEnvironment, 'queue' => $queueEnvironment] as $serviceName => $environment) {
+    if ($expectedMailer !== false
+        && ($environment['MAIL_MAILER'] ?? null) !== $expectedMailer) {
+        $failures[] = "The {$serviceName} service must honor MAIL_MAILER={$expectedMailer}.";
+    }
 
-if (($appEnvironment['MAIL_HOST'] ?? null) !== 'mailpit'
-    || ($appEnvironment['MAIL_PORT'] ?? null) !== '1025') {
-    $failures[] = 'The app must reach Mailpit internally on mailpit:1025.';
+    if (($environment['MAIL_HOST'] ?? null) !== 'mailpit'
+        || ($environment['MAIL_PORT'] ?? null) !== '1025') {
+        $failures[] = "The {$serviceName} service must reach Mailpit internally on mailpit:1025.";
+    }
 }
 
 if (! array_key_exists('queuefix', $app['networks'] ?? [])) {

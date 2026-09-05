@@ -69,7 +69,7 @@ Never publish the database with an unqualified `5432:5432` mapping or a wildcard
 
 ## Mailpit host access
 
-Mailpit's development inbox is available only from the Docker host at `http://127.0.0.1:8025`; its SMTP port is private to the Compose network. The app now honors `MAIL_MAILER` from `.env`, so production installations can disable Mailpit delivery or select another configured mailer. The standard upgrade workflow recreates the affected services; otherwise run `docker compose up -d app mailpit` rather than restarting them.
+Mailpit's development inbox is available only from the Docker host at `http://127.0.0.1:8025`; its SMTP port is private to the Compose network. The app and queue worker honor `MAIL_MAILER` from `.env`, so production installations can disable Mailpit delivery or select another configured mailer. The standard upgrade workflow recreates the affected services; otherwise run `docker compose up -d app queue mailpit` rather than restarting them.
 
 ## Rollback
 
