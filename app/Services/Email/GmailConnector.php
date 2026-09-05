@@ -533,6 +533,10 @@ class GmailConnector implements InboundEmailConnector
                 ->to($data['to'])
                 ->subject($data['subject']);
 
+            if (! empty($data['reply_to'])) {
+                $email->replyTo($data['reply_to']);
+            }
+
             if (! empty($data['html'])) {
                 $email->html($data['html']);
             }

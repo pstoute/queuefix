@@ -508,6 +508,20 @@ namespace {
             ->and(ImapFunctionState::$seenWrites)->toBe(0);
     });
 
+    test('IMAP sends the secure reply capability through the provider native Reply-To header', function () {
+        $connector = imapConnectorForTest();
+        $method = (new ReflectionClass($connector))->getMethod('buildOutboundMessage');
+        $message = $method->invoke($connector, [
+            'to' => 'customer@example.com',
+            'subject' => 'Ticket update',
+            'text' => 'Reply to this message.',
+            'reply_to' => 'support+0123456789abcdef@example.com',
+        ]);
+
+        expect($message->getReplyTo())->toHaveCount(1)
+            ->and($message->getReplyTo()[0]->getAddress())->toBe('support+0123456789abcdef@example.com');
+    });
+
     function imapConnectorForTest(): ImapConnector
     {
         $connector = new ImapConnector;

@@ -11,6 +11,7 @@ use App\Models\Ticket;
 use App\Services\Attachments\AttachmentService;
 use App\Services\Email\EmailProcessorService;
 use App\Services\Email\InboundEmailNormalizer;
+use App\Services\Email\TicketReplyCapabilityService;
 use App\Services\TicketService;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +20,8 @@ beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->ticketService = app(TicketService::class);
-    $this->emailProcessor = new class($this->ticketService, app(AttachmentService::class), app(InboundEmailNormalizer::class)) extends EmailProcessorService
+    $this->replyCapabilities = app(TicketReplyCapabilityService::class);
+    $this->emailProcessor = new class($this->ticketService, app(AttachmentService::class), app(InboundEmailNormalizer::class), $this->replyCapabilities) extends EmailProcessorService
     {
         private int $providerMessageSequence = 0;
 
@@ -31,6 +33,15 @@ beforeEach(function () {
         }
     };
 });
+
+function secureReplyAddress(Ticket $ticket, Mailbox $mailbox): string
+{
+    $mailbox->update(['reply_address_template' => 'support+{token}@example.com']);
+    $ticket->setRelation('mailbox', $mailbox);
+
+    return app(TicketReplyCapabilityService::class)->replyAddress($ticket)
+        ?? throw new RuntimeException('A secure reply address was not created.');
+}
 
 test('creating new ticket from new sender', function () {
     $mailbox = Mailbox::factory()->create();
@@ -106,6 +117,7 @@ test('matching existing ticket by In-Reply-To header', function () {
 
     $emailData = [
         'from_email' => $customer->email,
+        'to_email' => secureReplyAddress($ticket, $mailbox),
         'subject' => 'Re: Test',
         'body_text' => 'This is a reply',
         'in_reply_to' => '<original-message@example.com>',
@@ -137,6 +149,7 @@ test('matching ignores duplicate message IDs outside the sender and mailbox scop
 
     $resultTicket = $this->emailProcessor->processInboundEmail([
         'from_email' => $customer->email,
+        'to_email' => secureReplyAddress($ticket, $mailbox),
         'subject' => 'Re: Test',
         'body_text' => 'This is the legitimate reply',
         'in_reply_to' => '<duplicate-message@example.com>',
@@ -161,6 +174,7 @@ test('matching existing ticket by References header', function () {
 
     $emailData = [
         'from_email' => $customer->email,
+        'to_email' => secureReplyAddress($ticket, $mailbox),
         'subject' => 'Re: Test',
         'body_text' => 'This is a reply',
         'references' => '<first-message@example.com> <second-message@example.com>',
@@ -185,6 +199,7 @@ test('matching existing ticket by References header as array', function () {
 
     $emailData = [
         'from_email' => $customer->email,
+        'to_email' => secureReplyAddress($ticket, $mailbox),
         'subject' => 'Re: Test',
         'body_text' => 'This is a reply',
         'references' => ['<first-message@example.com>', '<second-message@example.com>'],
@@ -206,6 +221,7 @@ test('matching existing ticket by subject line pattern', function () {
 
     $emailData = [
         'from_email' => $customer->email,
+        'to_email' => secureReplyAddress($ticket, $mailbox),
         'subject' => 'Re: [QF-123] Original subject',
         'body_text' => 'This is a reply',
     ];
@@ -226,6 +242,7 @@ test('matching existing ticket by subject line pattern with different format', f
 
     $emailData = [
         'from_email' => $customer->email,
+        'to_email' => secureReplyAddress($ticket, $mailbox),
         'subject' => 'Question about [QF-456]',
         'body_text' => 'This is a reply',
     ];
@@ -251,6 +268,7 @@ test('reopening resolved ticket on customer reply', function () {
 
     $emailData = [
         'from_email' => $customer->email,
+        'to_email' => secureReplyAddress($ticket, $mailbox),
         'subject' => 'Re: Test',
         'body_text' => 'I still need help',
         'in_reply_to' => '<original@example.com>',
@@ -276,6 +294,7 @@ test('reopening closed ticket on customer reply', function () {
 
     $emailData = [
         'from_email' => $customer->email,
+        'to_email' => secureReplyAddress($ticket, $mailbox),
         'subject' => 'Re: Test',
         'body_text' => 'Follow up question',
         'in_reply_to' => '<original@example.com>',
@@ -320,6 +339,85 @@ test('thread identifiers cannot attach a different customer to an existing ticke
     'References array' => [['references' => ['<unrelated@example.com>', '<victim-thread@example.com>']]],
     'ticket number in subject' => [['subject' => 'Re: [QF-777] Victim ticket']],
 ]);
+
+test('visible sender metadata cannot authorize an existing ticket', function (array $threadingData) {
+    $mailbox = Mailbox::factory()->create();
+    $victim = Customer::factory()->create(['email' => 'victim@example.com']);
+    $ticket = Ticket::factory()->closed()->create([
+        'customer_id' => $victim->id,
+        'mailbox_id' => $mailbox->id,
+        'ticket_number' => 'QF-778',
+    ]);
+
+    Message::factory()->create([
+        'ticket_id' => $ticket->id,
+        'message_id' => '<victim-visible-from-thread@example.com>',
+    ]);
+
+    $resultTicket = $this->emailProcessor->processInboundEmail([
+        'from_email' => $victim->email,
+        'from_name' => 'Forged Victim',
+        'subject' => 'Forged reply',
+        'body_text' => 'Unauthorized content',
+        ...$threadingData,
+    ], $mailbox);
+
+    expect($resultTicket->id)->not->toBe($ticket->id)
+        ->and($ticket->fresh()->status)->toBe(TicketStatus::Closed)
+        ->and($ticket->messages()->count())->toBe(1);
+})->with([
+    'known In-Reply-To' => [['in_reply_to' => '<victim-visible-from-thread@example.com>']],
+    'known References' => [['references' => '<victim-visible-from-thread@example.com>']],
+    'known ticket number' => [['subject' => 'Re: [QF-778] Victim ticket']],
+    'forged authentication result' => [[
+        'in_reply_to' => '<victim-visible-from-thread@example.com>',
+        'authentication_results' => 'mx.example; dkim=pass header.from=victim@example.com',
+    ]],
+]);
+
+test('a valid reply capability and matching address authorize a reply despite display name changes', function () {
+    $mailbox = Mailbox::factory()->create();
+    $customer = Customer::factory()->create(['email' => 'customer@example.com']);
+    $ticket = Ticket::factory()->closed()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
+
+    $resultTicket = $this->emailProcessor->processInboundEmail([
+        'from_email' => $customer->email,
+        'from_name' => 'Updated Display Name',
+        'to_email' => secureReplyAddress($ticket, $mailbox),
+        'subject' => 'No conventional thread marker',
+        'body_text' => 'Authorized reply',
+    ], $mailbox);
+
+    $reply = $ticket->messages()->sole();
+
+    expect($resultTicket?->is($ticket))->toBeTrue()
+        ->and($ticket->fresh()->status)->toBe(TicketStatus::Open)
+        ->and($reply->sender_type)->toBe(Customer::class)
+        ->and($reply->sender_id)->toBe($customer->id);
+});
+
+test('a forwarded reply capability cannot authorize a different visible sender', function () {
+    $mailbox = Mailbox::factory()->create();
+    $customer = Customer::factory()->create(['email' => 'customer@example.com']);
+    $ticket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
+
+    $resultTicket = $this->emailProcessor->processInboundEmail([
+        'from_email' => 'forwardee@example.com',
+        'to_email' => secureReplyAddress($ticket, $mailbox),
+        'subject' => 'Forwarded reply',
+        'body_text' => 'Must create an independent ticket',
+    ], $mailbox);
+
+    expect($resultTicket?->is($ticket))->toBeFalse()
+        ->and($resultTicket?->customer->email)->toBe('forwardee@example.com')
+        ->and($ticket->messages()->count())->toBe(0);
+});
 
 test('thread identifiers cannot attach through a different mailbox', function () {
     $ticketMailbox = Mailbox::factory()->create();
@@ -454,6 +552,7 @@ test('html-only replies persist a canonical non-null text body', function () {
 
     $this->emailProcessor->processInboundEmail([
         'from_email' => $customer->email,
+        'to_email' => secureReplyAddress($ticket, $mailbox),
         'subject' => 'Re: HTML only',
         'body_html' => '<p>HTML-only reply</p>',
         'in_reply_to' => '<html-parent@example.com>',
@@ -465,7 +564,7 @@ test('html-only replies persist a canonical non-null text body', function () {
         ->and($reply->body_html)->toBe('<p>HTML-only reply</p>');
 });
 
-test('references use one bounded scoped lookup query', function () {
+test('references never participate in the authorization lookup', function () {
     $mailbox = Mailbox::factory()->create();
     $customer = Customer::factory()->create();
     $ticket = Ticket::factory()->create([
@@ -493,13 +592,14 @@ test('references use one bounded scoped lookup query', function () {
 
     $result = $this->emailProcessor->processInboundEmail([
         'from_email' => $customer->email,
+        'to_email' => secureReplyAddress($ticket, $mailbox),
         'subject' => 'Re: bounded references',
         'body_text' => 'A legitimate threaded reply',
         'references' => $references,
     ], $mailbox);
 
     expect($result?->is($ticket))->toBeTrue()
-        ->and($lookupQueries)->toBe(1);
+        ->and($lookupQueries)->toBe(0);
 });
 
 test('exact storage-width metadata remains accepted', function () {

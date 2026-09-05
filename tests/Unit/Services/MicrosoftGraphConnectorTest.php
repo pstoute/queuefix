@@ -63,6 +63,25 @@ test('Graph persists refreshed credentials through a real mailbox model', functi
         ->and($credentialUpdates)->toBe(1);
 });
 
+test('Graph sends secure reply addresses through the provider-native field', function () {
+    Http::fake(['https://graph.microsoft.com/v1.0/me/sendMail' => Http::response([], 202)]);
+    $connector = new MicrosoftGraphConnector;
+    expect($connector->connect(graphMailbox()))->toBeTrue();
+
+    expect($connector->sendEmail([
+        'to' => 'customer@example.com',
+        'subject' => '[QF-123] Reply',
+        'text' => 'Reply body',
+        'reply_to' => 'support+0123456789abcdef0123456789abcdef0123456789abcdef@example.com',
+        'headers' => ['In-Reply-To' => '<original@example.com>'],
+    ]))->toBeTrue();
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+        && str_ends_with($request->url(), '/me/sendMail')
+        && data_get($request->data(), 'message.replyTo.0.emailAddress.address') === 'support+0123456789abcdef0123456789abcdef0123456789abcdef@example.com'
+        && data_get($request->data(), 'message.toRecipients.0.emailAddress.address') === 'customer@example.com');
+});
+
 test('Graph uses immutable provider IDs and acknowledges only after fetching', function () {
     Http::fake(function (Request $request) {
         if ($request->method() === 'GET' && str_contains($request->url(), '/me/messages?')) {
@@ -167,6 +186,12 @@ test('Graph exact-limit HTML appends to an existing ticket without retrying', fu
         'message_id' => '<original@example.com>',
     ]);
     $fixture = graphMessageFixture('provider-html-reply', false);
+    $mailbox->update(['reply_address_template' => 'support+{token}@example.com']);
+    $fixture['toRecipients'] = [[
+        'emailAddress' => [
+            'address' => app(\App\Services\Email\TicketReplyCapabilityService::class)->replyAddress($ticket),
+        ],
+    ]];
     $fixture['body'] = ['contentType' => 'html', 'content' => '<b>123</b>'];
     $fixture['internetMessageHeaders'] = [[
         'name' => 'In-Reply-To',

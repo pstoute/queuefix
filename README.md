@@ -157,6 +157,24 @@ AWS WorkMail supports standard IMAP/SMTP. Use the **Generic IMAP** option with:
 - SMTP Host: `smtp.mail.us-east-1.awsapps.com`
 - SMTP Port: `465`
 
+### Secure email reply threading
+
+For each mailbox, configure a **Secure Reply Address Template** containing exactly one
+`{token}` placeholder, for example `support+{token}@example.com`. The resulting
+addresses must be accepted by your mail provider and routed back to that mailbox
+without rewriting the recipient address.
+
+QueueFix places the generated address in the provider-native `Reply-To` field for
+outbound ticket replies. A later inbound message joins an existing ticket only when
+it carries that unrevoked capability and the sender address matches the ticket's
+customer. Visible sender names, `From` addresses, subject ticket numbers, and message
+thread headers do not authorize ticket mutation by themselves. If the template is
+missing or a capability is invalid, the message safely starts a new ticket.
+
+Each ticket's random capability is stable for normal replies, encrypted at rest, and
+rotated if it is revoked or moved to a different mailbox. Treat reply addresses as
+secrets and avoid publishing them outside the intended email conversation.
+
 ### Inbound retry safety
 
 Mailbox polls use bounded batches and keep a database-backed lease for every

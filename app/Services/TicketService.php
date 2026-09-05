@@ -10,6 +10,7 @@ use App\Models\Customer;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Models\TicketReplyCapability;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -151,6 +152,12 @@ class TicketService
             }
 
             $lockedSecondary->messages()->update(['ticket_id' => $lockedPrimary->id]);
+            TicketReplyCapability::query()
+                ->where('ticket_id', $lockedSecondary->id)
+                ->update([
+                    'ticket_id' => $lockedPrimary->id,
+                    'updated_at' => now(),
+                ]);
 
             $secondaryTags = $lockedSecondary->tags()->pluck('tags.id')->toArray();
             $lockedPrimary->tags()->syncWithoutDetaching($secondaryTags);

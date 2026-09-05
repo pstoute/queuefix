@@ -100,6 +100,7 @@ export interface Mailbox {
     id: string;
     name: string;
     email: string;
+    reply_address_template?: string;
     type: MailboxType;
     department_id?: string;
     department?: Department;

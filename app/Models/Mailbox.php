@@ -22,6 +22,7 @@ class Mailbox extends Model
     protected $fillable = [
         'name',
         'email',
+        'reply_address_template',
         'type',
         'credentials',
         'incoming_settings',
@@ -129,5 +130,11 @@ class Mailbox extends Model
     public function tickets(): HasMany
     {
         return $this->hasMany(Ticket::class);
+    }
+
+    /** @return HasMany<TicketReplyCapability, $this> */
+    public function replyCapabilities(): HasMany
+    {
+        return $this->hasMany(TicketReplyCapability::class);
     }
 }

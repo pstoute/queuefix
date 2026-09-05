@@ -30,4 +30,9 @@ interface InboundEmailConnector
      * @param  array<string, mixed>  $emailData
      */
     public function acknowledge(array $emailData): bool;
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function sendEmail(array $data): bool;
 }
