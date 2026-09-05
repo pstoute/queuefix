@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use App\Enums\MailboxType;
 use App\Enums\MessageType;
 use App\Enums\TicketPriority;
-use App\Enums\TicketStatus;
 use App\Models\CannedResponse;
 use App\Models\Customer;
 use App\Models\Department;
@@ -16,6 +15,7 @@ use App\Models\Setting;
 use App\Models\SlaPolicy;
 use App\Models\Tag;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 
@@ -175,10 +175,11 @@ class DatabaseSeeder extends Seeder
         Setting::set('ticket_counter', '0', 'system');
 
         // Create sample tickets with messages
+        $ticketStatuses = TicketStatus::query()->pluck('id', 'sort_order');
         $ticketData = [
             [
                 'subject' => 'Cannot login to my account',
-                'status' => TicketStatus::Open,
+                'ticket_status_id' => $ticketStatuses[10],
                 'priority' => TicketPriority::High,
                 'customer' => $customers[0],
                 'assignee' => $agent1,
@@ -191,7 +192,7 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'subject' => 'Feature request: Dark mode for dashboard',
-                'status' => TicketStatus::Open,
+                'ticket_status_id' => $ticketStatuses[10],
                 'priority' => TicketPriority::Normal,
                 'customer' => $customers[1],
                 'assignee' => null,
@@ -202,7 +203,7 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'subject' => 'Billing discrepancy on last invoice',
-                'status' => TicketStatus::Pending,
+                'ticket_status_id' => $ticketStatuses[20],
                 'priority' => TicketPriority::High,
                 'customer' => $customers[2],
                 'assignee' => $agent2,
@@ -215,7 +216,7 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'subject' => 'API rate limiting too aggressive',
-                'status' => TicketStatus::OnHold,
+                'ticket_status_id' => $ticketStatuses[30],
                 'priority' => TicketPriority::Normal,
                 'customer' => $customers[3],
                 'assignee' => $agent1,
@@ -228,7 +229,7 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'subject' => 'How to set up SSO?',
-                'status' => TicketStatus::Resolved,
+                'ticket_status_id' => $ticketStatuses[40],
                 'priority' => TicketPriority::Low,
                 'customer' => $customers[4],
                 'assignee' => $agent3,
@@ -241,7 +242,7 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'subject' => 'Export data in CSV format not working',
-                'status' => TicketStatus::Open,
+                'ticket_status_id' => $ticketStatuses[10],
                 'priority' => TicketPriority::Urgent,
                 'customer' => $customers[5],
                 'assignee' => $agent2,
@@ -253,7 +254,7 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'subject' => 'Webhook integration with Slack',
-                'status' => TicketStatus::Open,
+                'ticket_status_id' => $ticketStatuses[10],
                 'priority' => TicketPriority::Normal,
                 'customer' => $customers[6],
                 'assignee' => null,
@@ -264,7 +265,7 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'subject' => 'Downgrade plan request',
-                'status' => TicketStatus::Closed,
+                'ticket_status_id' => $ticketStatuses[50],
                 'priority' => TicketPriority::Low,
                 'customer' => $customers[7],
                 'assignee' => $agent3,
@@ -284,15 +285,19 @@ class DatabaseSeeder extends Seeder
                 str_contains(strtolower($data['subject']), 'api') || str_contains(strtolower($data['subject']), 'export') || str_contains(strtolower($data['subject']), 'webhook') => $technicalDept->id,
                 default => $supportDept->id,
             };
+            $lastActivityAt = now()->subHours(rand(0, 72));
+            $isClosed = in_array($data['ticket_status_id'], [$ticketStatuses[40], $ticketStatuses[50]], true);
 
             $ticket = Ticket::create([
                 'subject' => $data['subject'],
-                'status' => $data['status'],
+                'ticket_status_id' => $data['ticket_status_id'],
                 'priority' => $data['priority'],
                 'customer_id' => $data['customer']->id,
                 'assigned_to' => $data['assignee']?->id,
                 'department_id' => $deptId,
-                'last_activity_at' => now()->subHours(rand(0, 72)),
+                'last_activity_at' => $lastActivityAt,
+                'resolved_at' => $isClosed ? $lastActivityAt : null,
+                'closed_at' => $isClosed ? $lastActivityAt : null,
             ]);
 
             if (! empty($data['tags'])) {

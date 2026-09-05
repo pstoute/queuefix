@@ -4,16 +4,18 @@ namespace App\Http\Controllers\Agent;
 
 use App\Enums\MessageType;
 use App\Enums\TicketPriority;
-use App\Enums\TicketStatus;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendEmailReplyJob;
 use App\Models\Customer;
 use App\Models\Department;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use App\Models\User;
+use App\Services\SlaService;
 use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -21,15 +23,16 @@ class TicketController extends Controller
 {
     public function __construct(
         private TicketService $ticketService,
+        private SlaService $slaService,
     ) {}
 
     public function index(Request $request): Response
     {
-        $query = Ticket::with(['customer', 'assignee', 'department', 'tags', 'slaTimer.slaPolicy'])
+        $query = Ticket::with(['customer', 'assignee', 'department', 'tags', 'status', 'slaTimer.slaPolicy'])
             ->orderBy('last_activity_at', 'desc');
 
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $query->whereHas('status', fn ($statusQuery) => $statusQuery->where('slug', $request->status));
         }
 
         if ($request->filled('priority')) {
@@ -69,11 +72,11 @@ class TicketController extends Controller
             'filters' => $request->only(['status', 'priority', 'assigned_to', 'department', 'search']),
             'agents' => User::where('is_active', true)->select('id', 'name', 'email', 'avatar')->get(),
             'departments' => Department::orderBy('name')->get(['id', 'name']),
-            'counts' => [
-                'open' => Ticket::where('status', TicketStatus::Open)->count(),
-                'pending' => Ticket::where('status', TicketStatus::Pending)->count(),
-                'unassigned' => Ticket::whereNull('assigned_to')->whereNotIn('status', [TicketStatus::Resolved, TicketStatus::Closed])->count(),
-            ],
+            'statuses' => TicketStatus::query()->ordered()->get(),
+            'statusCounts' => TicketStatus::query()->ordered()->withCount('tickets')->get(),
+            'unassignedCount' => Ticket::whereNull('assigned_to')
+                ->whereHas('status', fn ($statusQuery) => $statusQuery->where('is_closed', false))
+                ->count(),
         ]);
     }
 
@@ -85,16 +88,22 @@ class TicketController extends Controller
             'department',
             'tags',
             'mailbox',
+            'status',
             'slaTimer.slaPolicy',
+            'slaTimer.pauseIntervals',
             'messages' => function ($q) {
                 $q->with(['sender', 'attachments'])->orderBy('created_at', 'asc');
             },
         ]);
 
+        if ($ticket->slaTimer) {
+            $ticket->slaTimer->setAttribute('status_summary', $this->slaService->getSlaStatus($ticket->slaTimer));
+        }
+
         return Inertia::render('Agent/Tickets/Show', [
             'ticket' => $ticket,
             'agents' => User::where('is_active', true)->select('id', 'name', 'email', 'avatar')->get(),
-            'statuses' => collect(TicketStatus::cases())->map(fn ($s) => ['value' => $s->value, 'label' => $s->label()]),
+            'statuses' => TicketStatus::query()->ordered()->get(),
             'priorities' => collect(TicketPriority::cases())->map(fn ($p) => ['value' => $p->value, 'label' => $p->label()]),
         ]);
     }
@@ -156,10 +165,15 @@ class TicketController extends Controller
     public function updateStatus(Request $request, Ticket $ticket): RedirectResponse
     {
         $validated = $request->validate([
-            'status' => 'required|string|in:'.implode(',', array_column(TicketStatus::cases(), 'value')),
+            'status' => [
+                'required',
+                'string',
+                Rule::exists('ticket_statuses', 'slug')->whereNull('deleted_at'),
+            ],
         ]);
 
-        $this->ticketService->updateStatus($ticket, TicketStatus::from($validated['status']));
+        $status = TicketStatus::query()->where('slug', $validated['status'])->firstOrFail();
+        $this->ticketService->updateStatus($ticket, $status);
 
         return back()->with('success', 'Status updated.');
     }

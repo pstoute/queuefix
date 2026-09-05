@@ -27,28 +27,6 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
         });
     };
 
-    const getStatusBadgeVariant = (status: string) => {
-        const variants: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-            open: 'default',
-            pending: 'outline',
-            on_hold: 'secondary',
-            resolved: 'secondary',
-            closed: 'secondary',
-        };
-        return variants[status] || 'default';
-    };
-
-    const getStatusLabel = (status: string) => {
-        const labels: Record<string, string> = {
-            open: 'Open',
-            pending: 'Pending',
-            on_hold: 'On Hold',
-            resolved: 'Resolved',
-            closed: 'Closed',
-        };
-        return labels[status] || status;
-    };
-
     const getInitials = (name: string) => {
         return name
             .split(' ')
@@ -75,8 +53,14 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
                                 Ticket #{ticket.ticket_number}
                             </p>
                         </div>
-                        <Badge variant={getStatusBadgeVariant(ticket.status)}>
-                            {getStatusLabel(ticket.status)}
+                        <Badge
+                            variant="outline"
+                            style={{
+                                borderColor: ticket.customer_status?.color,
+                                color: ticket.customer_status?.color,
+                            }}
+                        >
+                            {ticket.customer_status?.name || 'In Progress'}
                         </Badge>
                     </div>
                 </div>
@@ -151,7 +135,7 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
                 </div>
 
                 {/* Reply Form */}
-                {ticket.status !== 'closed' && (
+                {!ticket.customer_status?.is_closed && (
                     <Card>
                         <CardHeader>
                             <CardTitle>Reply</CardTitle>
@@ -181,7 +165,7 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
                     </Card>
                 )}
 
-                {ticket.status === 'closed' && (
+                {ticket.customer_status?.is_closed && (
                     <Card>
                         <CardContent className="py-6 text-center">
                             <p className="text-sm text-gray-600">

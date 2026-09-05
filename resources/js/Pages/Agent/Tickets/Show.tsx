@@ -45,17 +45,9 @@ import {
 interface TicketShowProps extends PageProps {
   ticket: Ticket;
   agents: User[];
-  statuses: { value: TicketStatus; label: string }[];
+  statuses: TicketStatus[];
   priorities: { value: TicketPriority; label: string }[];
 }
-
-const statusConfig = {
-  open: { label: 'Open', color: 'bg-green-500' },
-  pending: { label: 'Pending', color: 'bg-amber-500' },
-  on_hold: { label: 'On Hold', color: 'bg-gray-500' },
-  resolved: { label: 'Resolved', color: 'bg-blue-500' },
-  closed: { label: 'Closed', color: 'bg-gray-500' },
-};
 
 const priorityConfig = {
   low: { label: 'Low', variant: 'secondary' as const },
@@ -84,7 +76,7 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
     });
   };
 
-  const handleStatusChange = (status: TicketStatus) => {
+  const handleStatusChange = (status: string) => {
     router.patch(`/agent/tickets/${ticket.id}/status`, { status }, { preserveScroll: true });
   };
 
@@ -119,35 +111,39 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
   };
 
   const getSlaStatus = () => {
-    if (!ticket.sla_timer) return null;
+    if (!ticket.sla_timer?.status_summary) return null;
+    const clockStatuses = Object.values(ticket.sla_timer.status_summary).map((clock) => clock.status);
 
-    if (ticket.sla_timer.first_response_breached || ticket.sla_timer.resolution_breached) {
+    if (clockStatuses.includes('breached')) {
       return { label: 'Breached', color: 'text-red-600', icon: AlertCircle };
     }
 
-    if (ticket.sla_timer.first_responded_at && ticket.sla_timer.resolved_at) {
-      return { label: 'Met', color: 'text-green-600', icon: CheckCircle };
+    if (clockStatuses.includes('paused')) {
+      return { label: 'Paused', color: 'text-gray-600 dark:text-gray-300', icon: Clock };
     }
 
-    // Calculate time remaining for next due date
-    const now = new Date();
-    const nextDue = ticket.sla_timer.first_response_due_at && !ticket.sla_timer.first_responded_at
-      ? new Date(ticket.sla_timer.first_response_due_at)
-      : ticket.sla_timer.resolution_due_at
-      ? new Date(ticket.sla_timer.resolution_due_at)
-      : null;
+    if (clockStatuses.includes('approaching')) {
+      return { label: 'Approaching', color: 'text-amber-600', icon: Clock };
+    }
 
-    if (nextDue) {
-      const hoursRemaining = Math.max(0, (nextDue.getTime() - now.getTime()) / (1000 * 60 * 60));
-      if (hoursRemaining < 2) {
-        return { label: 'Due Soon', color: 'text-amber-600', icon: Clock };
-      }
+    if (clockStatuses.every((status) => status === 'met' || status === 'none')) {
+      return { label: 'Met', color: 'text-green-600', icon: CheckCircle };
     }
 
     return { label: 'On Track', color: 'text-blue-600', icon: Clock };
   };
 
   const slaStatus = getSlaStatus();
+  const formatDuration = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m`;
+    return `${seconds}s`;
+  };
+  const activePauseSeconds = ticket.sla_timer?.paused_at
+    ? Math.max(0, Math.floor((Date.now() - new Date(ticket.sla_timer.paused_at).getTime()) / 1000))
+    : 0;
 
   return (
     <AgentLayout>
@@ -171,13 +167,11 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                     #{ticket.ticket_number}
                   </span>
                   <div
-                    className={cn(
-                      'h-2 w-2 rounded-full',
-                      statusConfig[ticket.status].color
-                    )}
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: ticket.status?.color || '#6b7280' }}
                   />
                   <span className="text-sm text-muted-foreground">
-                    {statusConfig[ticket.status].label}
+                    {ticket.status?.name || 'Unknown status'}
                   </span>
                 </div>
                 <h1 className="text-xl font-semibold">{ticket.subject}</h1>
@@ -354,14 +348,14 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                     {/* Status */}
                     <div className="space-y-2">
                       <Label className="text-xs text-muted-foreground">Status</Label>
-                      <Select value={ticket.status} onValueChange={handleStatusChange}>
+                      <Select value={ticket.status?.slug} onValueChange={handleStatusChange}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           {statuses.map((status) => (
-                            <SelectItem key={status.value} value={status.value}>
-                              {status.label}
+                            <SelectItem key={status.id} value={status.slug}>
+                              {status.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -477,6 +471,31 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                           <span className="text-sm font-medium">{slaStatus.label}</span>
                         </div>
                       </div>
+
+                      <Separator />
+
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Total paused</div>
+                        <div className="text-sm">
+                          {formatDuration(ticket.sla_timer.total_paused_seconds + activePauseSeconds)}
+                        </div>
+                      </div>
+
+                      {ticket.sla_timer.pause_intervals && ticket.sla_timer.pause_intervals.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-xs text-muted-foreground">Pause history</div>
+                          {ticket.sla_timer.pause_intervals.map((interval) => (
+                            <div key={interval.id} className="rounded-md border p-2 text-xs">
+                              <div>{formatDateTime(interval.started_at)}</div>
+                              <div className="text-muted-foreground">
+                                {interval.ended_at
+                                  ? `${formatDuration(interval.duration_seconds)} · resumed ${formatRelativeTime(interval.ended_at)}`
+                                  : 'Currently paused'}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
                       <Separator />
 
