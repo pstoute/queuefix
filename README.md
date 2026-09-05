@@ -31,14 +31,18 @@ QueueFix does **one thing well: support tickets.** No bloat, no unnecessary feat
 git clone https://github.com/yourusername/queuefix.git
 cd queuefix
 cp .env.example .env
-docker-compose up -d
-docker-compose exec app composer install
-docker-compose exec app php artisan key:generate
-docker-compose exec app php artisan migrate --seed
-docker-compose exec app sh -c "pnpm install && pnpm build"
+docker compose build
+docker compose run --rm --no-deps app php artisan key:generate
+docker compose run --rm migrate
+docker compose run --rm --no-deps app php artisan db:seed --force
+docker compose run --rm --no-deps app pnpm build
+docker compose up -d
+docker compose ps
 ```
 
 Then open http://localhost:8000. Mailpit's development inbox is available only from the Docker host at http://127.0.0.1:8025.
+
+The one-off setup commands generate the application key, create and seed the database, and compile the frontend assets. On every startup, Compose safely runs any pending database migrations to completion before the web, queue, and scheduler services start. The background services restart automatically after transient failures and after the queue worker's hourly recycle.
 
 **Demo login:** `admin@example.com` / `password`
 
