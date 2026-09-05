@@ -110,6 +110,41 @@ test('customer cannot download another customers attachment or an internal note'
     get(route('customer.attachments.download', $internalAttachment))->assertForbidden();
 });
 
+test('a compatible ticket merge preserves customer attachment ownership', function () {
+    $customer = Customer::factory()->create();
+    $otherCustomer = Customer::factory()->create();
+    $primaryTicket = Ticket::factory()->create(['customer_id' => $customer->id]);
+    $secondaryTicket = Ticket::factory()->create(['customer_id' => $customer->id]);
+    $message = Message::factory()->create([
+        'ticket_id' => $secondaryTicket->id,
+        'sender_id' => $customer->id,
+    ]);
+    $attachment = Attachment::factory()->create([
+        'message_id' => $message->id,
+        'filename' => 'merged.txt',
+        'path' => "attachments/tickets/{$secondaryTicket->id}/merged",
+        'size' => strlen('merged attachment'),
+        'sha256' => hash('sha256', 'merged attachment'),
+        'scan_status' => AttachmentScanStatus::Clean,
+    ]);
+    Storage::disk('private')->put($attachment->path, 'merged attachment');
+
+    actingAs(User::factory()->admin()->create());
+    post(route('agent.tickets.merge', $primaryTicket), [
+        'merge_ticket_id' => $secondaryTicket->id,
+    ])->assertRedirect()->assertSessionHasNoErrors();
+
+    expect($message->fresh()->ticket_id)->toBe($primaryTicket->id)
+        ->and($attachment->fresh()->message_id)->toBe($message->id)
+        ->and($attachment->path)->toBe("attachments/tickets/{$secondaryTicket->id}/merged");
+
+    actingAs($customer, 'customer');
+    get(route('customer.attachments.download', $attachment))->assertOk();
+
+    actingAs($otherCustomer, 'customer');
+    get(route('customer.attachments.download', $attachment))->assertForbidden();
+});
+
 test('pending attachments cannot be downloaded and private paths are not serialized', function () {
     $agent = User::factory()->create();
     $attachment = storedAttachment();

@@ -3,11 +3,13 @@
 use App\Enums\MessageType;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
+use App\Exceptions\TicketMergeRejected;
 use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Tag;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Services\SlaService;
 use App\Services\TicketService;
@@ -310,6 +312,40 @@ test('merging tickets syncs tags without duplicates', function () {
     $primaryTicket->refresh();
     expect($primaryTicket->tags)->toHaveCount(3);
     expect($primaryTicket->tags->pluck('id')->toArray())->toContain($tag1->id, $tag2->id, $tag3->id);
+});
+
+test('merging tickets rejects different customers before mutation', function () {
+    $primaryTicket = Ticket::factory()->create();
+    $secondaryTicket = Ticket::factory()->create();
+    $message = Message::factory()->create(['ticket_id' => $secondaryTicket->id]);
+    $tag = Tag::factory()->create();
+    $secondaryTicket->tags()->attach($tag);
+
+    expect(fn () => $this->ticketService->mergeTickets($primaryTicket, $secondaryTicket))
+        ->toThrow(TicketMergeRejected::class, 'Tickets must belong to the same customer.');
+
+    expect($message->fresh()->ticket_id)->toBe($secondaryTicket->id)
+        ->and($secondaryTicket->fresh()->status)->toBe(TicketStatus::Open)
+        ->and($primaryTicket->fresh()->tags)->toHaveCount(0);
+});
+
+test('merging tickets rejects different mailboxes before mutation', function () {
+    $customer = Customer::factory()->create();
+    $primaryTicket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => Mailbox::factory(),
+    ]);
+    $secondaryTicket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => Mailbox::factory(),
+    ]);
+    $message = Message::factory()->create(['ticket_id' => $secondaryTicket->id]);
+
+    expect(fn () => $this->ticketService->mergeTickets($primaryTicket, $secondaryTicket))
+        ->toThrow(TicketMergeRejected::class, 'Tickets must belong to the same mailbox.');
+
+    expect($message->fresh()->ticket_id)->toBe($secondaryTicket->id)
+        ->and($secondaryTicket->fresh()->status)->toBe(TicketStatus::Open);
 });
 
 test('get next ticket number returns counter plus one', function () {
