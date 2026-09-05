@@ -11,6 +11,7 @@ import {
   Clock,
   MessageSquare,
   RefreshCw,
+  Workflow,
 } from 'lucide-react';
 
 const settingsNav = [
@@ -19,6 +20,7 @@ const settingsNav = [
   { name: 'Appearance', href: '/settings/appearance', icon: Paintbrush, pattern: /^\/settings\/appearance/ },
   { name: 'Users', href: '/settings/users', icon: Users, pattern: /^\/settings\/users/ },
   { name: 'Departments', href: '/settings/departments', icon: Building2, pattern: /^\/settings\/departments/ },
+  { name: 'Ticket Statuses', href: '/settings/statuses', icon: Workflow, pattern: /^\/settings\/statuses/ },
   { name: 'Mailboxes', href: '/settings/mailboxes', icon: Mail, pattern: /^\/settings\/mailboxes/ },
   { name: 'SLA Policies', href: '/settings/sla', icon: Clock, pattern: /^\/settings\/sla/ },
   { name: 'Canned Responses', href: '/settings/canned-responses', icon: MessageSquare, pattern: /^\/settings\/canned-responses/ },

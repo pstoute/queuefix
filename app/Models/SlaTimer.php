@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SlaTimer extends Model
 {
@@ -42,6 +43,7 @@ class SlaTimer extends Model
             'resolution_due_at' => 'datetime',
             'resolved_at' => 'datetime',
             'paused_at' => 'datetime',
+            'total_paused_seconds' => 'integer',
             'first_response_breached' => 'boolean',
             'resolution_breached' => 'boolean',
         ];
@@ -61,5 +63,11 @@ class SlaTimer extends Model
     public function slaPolicy(): BelongsTo
     {
         return $this->belongsTo(SlaPolicy::class);
+    }
+
+    /** @return HasMany<SlaPauseInterval, $this> */
+    public function pauseIntervals(): HasMany
+    {
+        return $this->hasMany(SlaPauseInterval::class)->orderBy('started_at');
     }
 }

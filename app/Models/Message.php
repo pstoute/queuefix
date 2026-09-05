@@ -63,4 +63,16 @@ class Message extends Model
     {
         return $this->hasMany(Attachment::class);
     }
+
+    /** @return HasMany<TicketMention, $this> */
+    public function mentions(): HasMany
+    {
+        return $this->hasMany(TicketMention::class);
+    }
+
+    /** @return HasMany<MessageCcRecipient, $this> */
+    public function ccRecipients(): HasMany
+    {
+        return $this->hasMany(MessageCcRecipient::class);
+    }
 }
