@@ -24,6 +24,41 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+install_docker() {
+    if docker --version &>/dev/null; then
+        echo "  Docker already installed, skipping."
+        return
+    fi
+
+    sudo apt-get install -y -qq docker.io
+    sudo usermod -aG docker ubuntu
+    docker --version >/dev/null
+    echo "  ✅ Docker installed."
+}
+
+install_docker_compose() {
+    if docker compose version &>/dev/null; then
+        echo "  Docker Compose already available."
+        return
+    fi
+
+    sudo apt-get install -y -qq docker-compose-v2
+    docker compose version >/dev/null
+    echo "  ✅ Docker Compose installed."
+}
+
+install_caddy() {
+    if caddy version &>/dev/null; then
+        echo "  Caddy already installed, skipping."
+        return
+    fi
+
+    sudo apt-get install -y -qq caddy
+    caddy version >/dev/null
+    echo "  ✅ Caddy installed."
+}
+
+main() {
 echo -e "${GREEN}🔧 Setting up QueueFix demo server...${NC}\n"
 
 # --- Step 1: System Updates ---
@@ -34,35 +69,15 @@ echo "  ✅ System updated."
 
 # --- Step 2: Install Docker ---
 echo -e "${YELLOW}[2/7] Installing Docker...${NC}"
-if command -v docker &>/dev/null; then
-    echo "  Docker already installed, skipping."
-else
-    curl -fsSL https://get.docker.com | sudo sh
-    sudo usermod -aG docker ubuntu
-    echo "  ✅ Docker installed."
-fi
+install_docker
 
 # --- Step 3: Install Docker Compose ---
 echo -e "${YELLOW}[3/7] Installing Docker Compose...${NC}"
-if command -v docker compose &>/dev/null; then
-    echo "  Docker Compose already available."
-else
-    sudo apt-get install -y -qq docker-compose-plugin
-    echo "  ✅ Docker Compose installed."
-fi
+install_docker_compose
 
 # --- Step 4: Install Caddy (reverse proxy + auto-SSL) ---
 echo -e "${YELLOW}[4/7] Installing Caddy...${NC}"
-if command -v caddy &>/dev/null; then
-    echo "  Caddy already installed, skipping."
-else
-    sudo apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq caddy
-    echo "  ✅ Caddy installed."
-fi
+install_caddy
 
 # --- Step 5: Clone Repo & Configure ---
 echo -e "${YELLOW}[5/7] Setting up application...${NC}"
@@ -218,3 +233,8 @@ echo ""
 echo "  SSL certificate will auto-provision via Caddy on first request."
 echo "  Make sure DNS for ${DOMAIN} points to this server's IP."
 echo ""
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
