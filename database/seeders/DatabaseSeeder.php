@@ -84,10 +84,10 @@ class DatabaseSeeder extends Seeder
             'name' => 'Support',
             'email' => 'support@example.com',
             'type' => MailboxType::Imap,
-            'credentials' => encrypt([
+            'credentials' => [
                 'username' => 'support@example.com',
                 'password' => 'demo-password',
-            ]),
+            ],
             'incoming_settings' => [
                 'host' => 'mail.example.com',
                 'port' => 993,

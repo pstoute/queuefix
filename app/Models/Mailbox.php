@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use UnexpectedValueException;
 
 class Mailbox extends Model
 {
@@ -32,6 +33,15 @@ class Mailbox extends Model
     ];
 
     /**
+     * The attributes that should be hidden for serialization.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'credentials',
+    ];
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -46,6 +56,60 @@ class Mailbox extends Model
             'is_active' => 'boolean',
             'last_checked_at' => 'datetime',
         ];
+    }
+
+    public function getDecryptedCredential(string $key): mixed
+    {
+        $credentials = $this->getAttribute('credentials');
+
+        if ($credentials === null) {
+            return null;
+        }
+
+        if (! is_array($credentials)) {
+            throw new UnexpectedValueException('Mailbox credentials must decrypt to an array.');
+        }
+
+        return $credentials[$key] ?? null;
+    }
+
+    public function setEncryptedCredential(string $key, mixed $value): void
+    {
+        $this->setEncryptedCredentials([$key => $value]);
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $credentials
+     */
+    public function setEncryptedCredentials(array $credentials): void
+    {
+        foreach (array_keys($credentials) as $key) {
+            if (! is_string($key) || $key === '') {
+                throw new UnexpectedValueException('Mailbox credential keys must be non-empty strings.');
+            }
+        }
+
+        if ($credentials === []) {
+            return;
+        }
+
+        $this->getConnection()->transaction(function () use ($credentials): void {
+            $mailbox = static::query()->lockForUpdate()->findOrFail($this->getKey());
+            $persistedCredentials = $mailbox->getAttribute('credentials');
+
+            if ($persistedCredentials === null) {
+                $persistedCredentials = [];
+            }
+
+            if (! is_array($persistedCredentials)) {
+                throw new UnexpectedValueException('Mailbox credentials must decrypt to an array.');
+            }
+
+            $mailbox->setAttribute('credentials', array_replace($persistedCredentials, $credentials));
+            $mailbox->save();
+
+            $this->setRawAttributes($mailbox->getAttributes(), true);
+        });
     }
 
     /**

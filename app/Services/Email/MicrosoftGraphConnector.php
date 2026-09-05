@@ -71,9 +71,11 @@ class MicrosoftGraphConnector implements InboundEmailConnector
 
         if ($response->successful()) {
             $data = $response->json();
-            $this->mailbox->setEncryptedCredential('access_token', $data['access_token']);
-            $this->mailbox->setEncryptedCredential('refresh_token', $data['refresh_token'] ?? $refreshToken);
-            $this->mailbox->setEncryptedCredential('token_expires_at', (string) (now()->timestamp + $data['expires_in']));
+            $this->mailbox->setEncryptedCredentials([
+                'access_token' => $data['access_token'],
+                'refresh_token' => $data['refresh_token'] ?? $refreshToken,
+                'token_expires_at' => (string) (now()->timestamp + $data['expires_in']),
+            ]);
 
             return $data['access_token'];
         }
