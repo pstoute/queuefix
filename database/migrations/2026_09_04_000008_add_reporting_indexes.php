@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -28,6 +29,14 @@ return new class extends Migration
 
     public function down(): void
     {
+        // InnoDB may replace the implicit department foreign-key index with
+        // our composite index. Restore a supporting index before removing it.
+        if (DB::getDriverName() === 'mysql' && ! Schema::hasIndex('tickets', 'tickets_department_id_index')) {
+            Schema::table('tickets', function (Blueprint $table) {
+                $table->index('department_id');
+            });
+        }
+
         Schema::table('ticket_ratings', function (Blueprint $table) {
             $table->dropIndex('ticket_ratings_report_index');
         });
