@@ -76,6 +76,7 @@ class TicketMergeService
 
             $source->update([
                 'ticket_status_id' => $closedStatus->id,
+                'status_changed_at' => $mergedAt,
                 'resolved_at' => $source->resolved_at ?? $mergedAt,
                 'closed_at' => $source->closed_at ?? $mergedAt,
                 'last_activity_at' => $mergedAt,

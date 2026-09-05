@@ -25,7 +25,9 @@ class Ticket extends Model
         'ticket_number',
         'subject',
         'ticket_status_id',
+        'status_changed_at',
         'priority',
+        'priority_changed_at',
         'customer_id',
         'assigned_to',
         'mailbox_id',
@@ -47,6 +49,8 @@ class Ticket extends Model
     {
         return [
             'priority' => \App\Enums\TicketPriority::class,
+            'status_changed_at' => 'datetime',
+            'priority_changed_at' => 'datetime',
             'last_activity_at' => 'datetime',
             'resolved_at' => 'datetime',
             'closed_at' => 'datetime',
@@ -70,6 +74,9 @@ class Ticket extends Model
             }
             if (empty($ticket->ticket_status_id)) {
                 $ticket->ticket_status_id = TicketStatus::defaultStatus()->id;
+            }
+            if (empty($ticket->status_changed_at)) {
+                $ticket->status_changed_at = now();
             }
         });
     }
@@ -238,6 +245,12 @@ class Ticket extends Model
     public function splitEvents(): HasMany
     {
         return $this->hasMany(TicketSplitEvent::class)->orderBy('occurred_at')->orderBy('id');
+    }
+
+    /** @return HasMany<EscalationLog, $this> */
+    public function escalationLogs(): HasMany
+    {
+        return $this->hasMany(EscalationLog::class)->latest('created_at');
     }
 
     public function isMerged(): bool

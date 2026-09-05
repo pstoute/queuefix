@@ -145,6 +145,7 @@ class TicketService
 
             $updates = [
                 'ticket_status_id' => $newStatus->id,
+                'status_changed_at' => now(),
                 'last_activity_at' => now(),
             ];
 

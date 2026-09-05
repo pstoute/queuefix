@@ -16,6 +16,7 @@ use App\Http\Controllers\Customer\CustomerTicketRatingController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Settings\AppearanceController;
 use App\Http\Controllers\Settings\DepartmentController;
+use App\Http\Controllers\Settings\EscalationRuleController;
 use App\Http\Controllers\Settings\GeneralSettingsController;
 use App\Http\Controllers\Settings\MailboxController;
 use App\Http\Controllers\Settings\SlaController;
@@ -97,6 +98,12 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('sett
 
     Route::get('reports', [SupportReportController::class, 'index'])->name('reports.index');
     Route::get('reports/export', [SupportReportController::class, 'export'])->name('reports.export');
+
+    Route::get('escalations', [EscalationRuleController::class, 'index'])->name('escalations.index');
+    Route::post('escalations', [EscalationRuleController::class, 'store'])->name('escalations.store');
+    Route::put('escalations/{escalationRule}', [EscalationRuleController::class, 'update'])->name('escalations.update');
+    Route::post('escalations/{escalationRule}/preview', [EscalationRuleController::class, 'preview'])->name('escalations.preview');
+    Route::patch('escalations/{escalationRule}/active', [EscalationRuleController::class, 'setActive'])->name('escalations.active');
 
     Route::get('appearance', [AppearanceController::class, 'index'])->name('appearance.index');
     Route::put('appearance', [AppearanceController::class, 'update'])->name('appearance.update');

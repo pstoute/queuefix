@@ -13,12 +13,14 @@ import {
   RefreshCw,
   Workflow,
   ChartNoAxesCombined,
+  Siren,
 } from 'lucide-react';
 
 const settingsNav = [
   { name: 'General', href: '/settings/general', icon: Settings, pattern: /^\/settings\/general/ },
   { name: 'Updates', href: '/settings/updates', icon: RefreshCw, pattern: /^\/settings\/updates/ },
   { name: 'Reports', href: '/settings/reports', icon: ChartNoAxesCombined, pattern: /^\/settings\/reports/ },
+  { name: 'Escalations', href: '/settings/escalations', icon: Siren, pattern: /^\/settings\/escalations/ },
   { name: 'Appearance', href: '/settings/appearance', icon: Paintbrush, pattern: /^\/settings\/appearance/ },
   { name: 'Users', href: '/settings/users', icon: Users, pattern: /^\/settings\/users/ },
   { name: 'Departments', href: '/settings/departments', icon: Building2, pattern: /^\/settings\/departments/ },

@@ -301,7 +301,13 @@ class TicketController extends Controller
             'priority' => 'required|string|in:'.implode(',', array_column(TicketPriority::cases(), 'value')),
         ]);
 
-        $ticket->update(['priority' => TicketPriority::from($validated['priority'])]);
+        $priority = TicketPriority::from($validated['priority']);
+        if ($ticket->getRawOriginal('priority') !== $priority->value) {
+            $ticket->update([
+                'priority' => $priority,
+                'priority_changed_at' => now(),
+            ]);
+        }
 
         return back()->with('success', 'Priority updated.');
     }

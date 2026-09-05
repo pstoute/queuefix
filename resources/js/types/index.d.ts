@@ -276,6 +276,61 @@ export interface SlaPauseInterval {
     duration_seconds: number;
 }
 
+export type EscalationTrigger = 'no_first_response' | 'no_activity' | 'sla_approaching' | 'sla_breached' | 'status_entered' | 'priority_changed';
+
+export interface EscalationRule {
+    id: string;
+    name: string;
+    trigger: EscalationTrigger;
+    trigger_config: Record<string, unknown>;
+    filters: Record<string, unknown>;
+    actions: Array<Record<string, unknown>>;
+    include_closed: boolean;
+    include_archived: boolean;
+    is_active: boolean;
+    created_by?: string | null;
+    creator?: Pick<User, 'id' | 'name'> | null;
+    last_previewed_at?: string | null;
+    logs_count?: number;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface EscalationActionLog {
+    id: string;
+    escalation_log_id: string;
+    escalation_rule_id: string;
+    ticket_id: string;
+    attempt: number;
+    action_order: number;
+    action_type: string;
+    status: 'applied' | 'failed';
+    actor: 'system';
+    before_context?: Record<string, unknown> | null;
+    after_context?: Record<string, unknown> | null;
+    error?: string | null;
+    occurred_at: string;
+}
+
+export interface EscalationLog {
+    id: string;
+    escalation_rule_id: string;
+    ticket_id: string;
+    trigger_window: string;
+    trigger_context: Record<string, unknown>;
+    status: 'pending' | 'processing' | 'applied' | 'failed' | 'skipped';
+    attempts: number;
+    actor: 'system';
+    started_at?: string | null;
+    completed_at?: string | null;
+    error?: string | null;
+    rule?: Pick<EscalationRule, 'id' | 'name'>;
+    ticket?: Pick<Ticket, 'id' | 'ticket_number' | 'subject'>;
+    action_logs?: EscalationActionLog[];
+    created_at: string;
+    updated_at: string;
+}
+
 export interface Setting {
     id: string;
     key: string;
