@@ -194,6 +194,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify Docker build context excludes local secrets
+        run: bash scripts/verify-docker-build-context.sh
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
