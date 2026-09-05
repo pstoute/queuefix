@@ -8,6 +8,7 @@ use App\Models\Ticket;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -45,6 +46,8 @@ class TagController extends Controller
 
     public function attachToTicket(Request $request, Ticket $ticket): RedirectResponse
     {
+        Gate::authorize('update', $ticket);
+
         $validated = $request->validate([
             'tag_id' => 'required|exists:tags,id',
         ]);
@@ -56,6 +59,8 @@ class TagController extends Controller
 
     public function detachFromTicket(Ticket $ticket, Tag $tag): RedirectResponse
     {
+        Gate::authorize('update', $ticket);
+
         $ticket->tags()->detach($tag->id);
 
         return back()->with('success', 'Tag removed.');

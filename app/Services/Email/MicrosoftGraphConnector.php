@@ -91,7 +91,7 @@ class MicrosoftGraphConnector
                     '$filter' => $filter,
                     '$top' => 50,
                     '$orderby' => 'receivedDateTime desc',
-                    '$select' => 'id,subject,from,toRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments,internetMessageId',
+                    '$select' => 'id,subject,from,toRecipients,ccRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments,internetMessageId',
                 ]);
 
             if (! $response->successful()) {
@@ -152,6 +152,13 @@ class MicrosoftGraphConnector
             'message_id' => $msg['internetMessageId'] ?? $headers['Message-ID'] ?? null,
             'in_reply_to' => $headers['In-Reply-To'] ?? null,
             'references' => $headers['References'] ?? null,
+            'cc' => array_values(array_map(
+                static fn (array $recipient): array => [
+                    'email' => strtolower($recipient['emailAddress']['address'] ?? ''),
+                    'display_name' => $recipient['emailAddress']['name'] ?? null,
+                ],
+                $msg['ccRecipients'] ?? [],
+            )),
             'date' => $msg['receivedDateTime'] ?? null,
             'attachments' => $attachments,
         ];
@@ -213,6 +220,12 @@ class MicrosoftGraphConnector
                             ],
                         ],
                     ],
+                    'ccRecipients' => array_map(
+                        static fn (string $email): array => [
+                            'emailAddress' => ['address' => $email],
+                        ],
+                        $data['cc'] ?? [],
+                    ),
                 ],
                 'saveToSentItems' => true,
             ];

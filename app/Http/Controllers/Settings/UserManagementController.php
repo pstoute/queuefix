@@ -21,6 +21,7 @@ class UserManagementController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->role,
+                'is_support_manager' => $user->is_support_manager,
                 'is_active' => $user->is_active,
                 'avatar' => $user->avatar,
                 'created_at' => $user->created_at,
@@ -52,6 +53,7 @@ class UserManagementController extends Controller
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'role' => 'sometimes|string|in:'.implode(',', array_column(UserRole::cases(), 'value')),
+            'is_support_manager' => 'sometimes|boolean',
             'is_active' => 'sometimes|boolean',
         ]);
 
