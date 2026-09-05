@@ -5,6 +5,7 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -75,5 +76,21 @@ class User extends Authenticatable
     public function cannedResponses(): HasMany
     {
         return $this->hasMany(CannedResponse::class, 'created_by');
+    }
+
+    /**
+     * Get the tickets this agent explicitly watches.
+     *
+     * @return BelongsToMany<Ticket, $this>
+     */
+    public function watchedTickets(): BelongsToMany
+    {
+        return $this->belongsToMany(Ticket::class, 'ticket_watchers')->withTimestamps();
+    }
+
+    /** @return HasMany<TicketReadState, $this> */
+    public function ticketReadStates(): HasMany
+    {
+        return $this->hasMany(TicketReadState::class);
     }
 }

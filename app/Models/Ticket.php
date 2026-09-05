@@ -23,13 +23,15 @@ class Ticket extends Model
     protected $fillable = [
         'ticket_number',
         'subject',
-        'status',
+        'ticket_status_id',
         'priority',
         'customer_id',
         'assigned_to',
         'mailbox_id',
         'department_id',
         'last_activity_at',
+        'resolved_at',
+        'closed_at',
     ];
 
     /**
@@ -40,9 +42,10 @@ class Ticket extends Model
     protected function casts(): array
     {
         return [
-            'status' => \App\Enums\TicketStatus::class,
             'priority' => \App\Enums\TicketPriority::class,
             'last_activity_at' => 'datetime',
+            'resolved_at' => 'datetime',
+            'closed_at' => 'datetime',
         ];
     }
 
@@ -59,6 +62,9 @@ class Ticket extends Model
             }
             if (empty($ticket->last_activity_at)) {
                 $ticket->last_activity_at = now();
+            }
+            if (empty($ticket->ticket_status_id)) {
+                $ticket->ticket_status_id = TicketStatus::defaultStatus()->id;
             }
         });
     }
@@ -105,6 +111,16 @@ class Ticket extends Model
     }
 
     /**
+     * Get the configurable workflow status assigned to the ticket.
+     *
+     * @return BelongsTo<TicketStatus, $this>
+     */
+    public function status(): BelongsTo
+    {
+        return $this->belongsTo(TicketStatus::class, 'ticket_status_id');
+    }
+
+    /**
      * Get the user assigned to the ticket.
      */
     public function assignee(): BelongsTo
@@ -133,9 +149,7 @@ class Ticket extends Model
         return $this->hasMany(Message::class);
     }
 
-    /**
-     * Get the SLA timer for the ticket.
-     */
+    /** @return HasOne<SlaTimer, $this> */
     public function slaTimer(): HasOne
     {
         return $this->hasOne(SlaTimer::class);
@@ -147,5 +161,21 @@ class Ticket extends Model
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(Tag::class, 'tag_ticket');
+    }
+
+    /**
+     * Get the agents who explicitly watch this ticket.
+     *
+     * @return BelongsToMany<User, $this>
+     */
+    public function watchers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'ticket_watchers')->withTimestamps();
+    }
+
+    /** @return HasMany<TicketReadState, $this> */
+    public function readStates(): HasMany
+    {
+        return $this->hasMany(TicketReadState::class);
     }
 }
