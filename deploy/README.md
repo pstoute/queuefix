@@ -51,6 +51,8 @@ ssh -i ~/.ssh/queuefix-demo-key.pem ubuntu@<STATIC_IP> 'chmod +x setup-server.sh
 
 This takes ~5 minutes. It installs Docker, Caddy, clones the repo, builds containers, runs migrations, seeds demo data, and sets up the cron.
 
+The generated HTTPS deployment requires Secure, HttpOnly, SameSite=Lax authentication cookies and sends a one-year HSTS policy. The HSTS policy does not include subdomains or request browser preload registration.
+
 ### 5. Verify
 
 - Visit `https://demo.queuefix.com` — should show the QueueFix login page with demo credentials

@@ -32,6 +32,20 @@ QUEUEFIX_NETWORK_GATEWAY=172.30.254.1
 
 Compose enforces `TRUSTED_PROXY_REQUIRED=true` and derives `TRUSTED_PROXIES` from `QUEUEFIX_NETWORK_GATEWAY`; generic trusted-proxy values in `.env` cannot override that topology. Outside Compose, the application refuses to start when required-proxy mode has an empty trusted-proxy allowlist.
 
+## HTTPS session cookies
+
+For any installation whose `APP_URL` starts with `https://`, set:
+
+```dotenv
+SESSION_SECURE_COOKIE=true
+SESSION_HTTP_ONLY=true
+SESSION_SAME_SITE=lax
+```
+
+QueueFix promotes a legacy nullable Secure-cookie setting when `APP_URL` uses HTTPS, including when an older cached configuration is still present during an upgrade. It refuses an explicit `SESSION_SECURE_COOKIE=false` mismatch. Direct local HTTP remains supported with the example configuration's explicit `false` value.
+
+The supplied Caddy configuration and HTTPS application responses set `Strict-Transport-Security: max-age=31536000`. The policy deliberately omits `includeSubDomains` and `preload`; enable those only after verifying HTTPS coverage for every affected subdomain. Browsers learn HSTS only after a successful HTTPS response, so review your normal session-revocation procedure if the installation previously issued non-Secure authentication cookies.
+
 ## PostgreSQL host access
 
 The default Compose configuration does not publish PostgreSQL to the host. Application services and maintenance commands continue to reach it through the private Compose network. After updating, use `docker compose up -d postgres` rather than `docker compose restart postgres` so Docker recreates the service with the new network configuration.

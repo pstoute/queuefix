@@ -116,6 +116,7 @@ QUEUE_CONNECTION=database
 # Session
 SESSION_DRIVER=database
 SESSION_LIFETIME=120
+SESSION_SECURE_COOKIE=true
 
 # Reverse proxy boundary (Caddy reaches the container through this gateway)
 QUEUEFIX_NETWORK_SUBNET=${DOCKER_NETWORK_SUBNET}
@@ -150,6 +151,7 @@ ${DOMAIN} {
         X-Frame-Options "SAMEORIGIN"
         Referrer-Policy "strict-origin-when-cross-origin"
         X-XSS-Protection "1; mode=block"
+        Strict-Transport-Security "max-age=31536000"
     }
 
     # Gzip

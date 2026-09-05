@@ -223,6 +223,9 @@ OAuth login is available only to active staff accounts that an administrator has
 | `DB_PORT` | Database port (`5432` for PG, `3306` for MySQL) | `5432` |
 | `DB_DATABASE` | Database name | `queuefix` |
 | `QUEUE_CONNECTION` | Queue driver | `database` |
+| `SESSION_SECURE_COOKIE` | Require HTTPS-only authentication-cookie transport; must be `true` when `APP_URL` uses HTTPS | `false` |
+| `SESSION_HTTP_ONLY` | Prevent JavaScript from reading authentication cookies | `true` |
+| `SESSION_SAME_SITE` | Same-site policy for authentication cookies | `lax` |
 | `INBOUND_EMAIL_POLL_BATCH_SIZE` | Maximum processing jobs dispatched per mailbox poll | `50` |
 | `INBOUND_EMAIL_CLAIM_LEASE_SECONDS` | Pending-message lease; clamped above the processing timeout | `900` |
 | `INBOUND_EMAIL_RETRY_BASE_SECONDS` | Initial cooldown after a final processing failure | `300` |

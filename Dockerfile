@@ -109,7 +109,6 @@ RUN mkdir -p \
         storage/framework/views \
         storage/logs \
     && composer dump-autoload --optimize \
-    && php artisan config:cache \
     && php artisan route:cache \
     && php artisan view:cache
 
