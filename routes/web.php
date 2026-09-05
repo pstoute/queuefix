@@ -4,6 +4,7 @@ use App\Http\Controllers\Agent\CannedResponseController;
 use App\Http\Controllers\Agent\DashboardController;
 use App\Http\Controllers\Agent\TagController;
 use App\Http\Controllers\Agent\TicketController;
+use App\Http\Controllers\AttachmentDownloadController;
 use App\Http\Controllers\Auth\MagicLinkController;
 use App\Http\Controllers\Auth\SocialiteController;
 use App\Http\Controllers\Customer\CustomerAuthController;
@@ -60,6 +61,8 @@ Route::middleware(['auth', 'active', 'verified'])->prefix('agent')->name('agent.
     Route::patch('tickets/{ticket}/priority', [TicketController::class, 'updatePriority'])->name('tickets.priority');
     Route::patch('tickets/{ticket}/assign', [TicketController::class, 'assign'])->name('tickets.assign');
     Route::post('tickets/{ticket}/merge', [TicketController::class, 'merge'])->name('tickets.merge');
+    Route::get('attachments/{attachment}/download', [AttachmentDownloadController::class, 'agent'])
+        ->name('attachments.download');
 
     // Tags
     Route::get('tags', [TagController::class, 'index'])->name('tags.index');
@@ -132,6 +135,8 @@ Route::prefix('portal')->name('customer.')->group(function () {
         Route::get('tickets', [CustomerTicketController::class, 'index'])->name('tickets.index');
         Route::get('tickets/{ticket}', [CustomerTicketController::class, 'show'])->name('tickets.show');
         Route::post('tickets/{ticket}/reply', [CustomerTicketController::class, 'reply'])->name('tickets.reply');
+        Route::get('attachments/{attachment}/download', [AttachmentDownloadController::class, 'customer'])
+            ->name('attachments.download');
         Route::post('logout', [CustomerAuthController::class, 'logout'])->name('logout');
     });
 });

@@ -9,6 +9,7 @@ use App\Models\Setting;
 use App\Models\SlaPolicy;
 use App\Models\SlaTimer;
 use App\Models\Ticket;
+use App\Services\Attachments\AttachmentService;
 use App\Services\Email\EmailProcessorService;
 use App\Services\TicketService;
 use Illuminate\Support\Facades\Storage;
@@ -174,7 +175,7 @@ test('provider identity does not depend on an RFC Message-ID header', function (
 });
 
 test('replaying an attachment does not duplicate its row or stored object', function () {
-    Storage::fake('local');
+    Storage::fake('private');
     $mailbox = Mailbox::factory()->create();
     $email = [
         'provider_message_id' => 'gmail:provider-attachment-1',
@@ -193,8 +194,8 @@ test('replaying an attachment does not duplicate its row or stored object', func
     $this->processor->processInboundEmail($email, $mailbox);
 
     expect(Attachment::count())->toBe(1)
-        ->and(Storage::disk('local')->allFiles())->toBe([$attachment->path]);
-    Storage::disk('local')->assertExists($attachment->path);
+        ->and(Storage::disk('private')->allFiles())->toBe([$attachment->path]);
+    Storage::disk('private')->assertExists($attachment->path);
 });
 
 test('a failed transaction does not poison the provider identity claim', function () {
@@ -209,7 +210,7 @@ test('a failed transaction does not poison the provider identity claim', functio
     $failingTicketService->shouldReceive('createTicket')
         ->once()
         ->andThrow(new RuntimeException('Injected ticket creation failure'));
-    $failingProcessor = new EmailProcessorService($failingTicketService);
+    $failingProcessor = new EmailProcessorService($failingTicketService, app(AttachmentService::class));
 
     expect(fn () => $failingProcessor->processInboundEmail($email, $mailbox))
         ->toThrow(RuntimeException::class, 'Injected ticket creation failure');
@@ -227,7 +228,7 @@ test('a failed transaction does not poison the provider identity claim', functio
 });
 
 test('rollback cleanup completes before a retry reuses the stable attachment path', function () {
-    Storage::fake('local');
+    Storage::fake('private');
     $mailbox = Mailbox::factory()->create();
     $email = [
         'provider_message_id' => 'imap:INBOX:123:attachment-race',
@@ -258,13 +259,13 @@ test('rollback cleanup completes before a retry reuses the stable attachment pat
         ->toThrow(RuntimeException::class, 'Injected failure after attachment storage');
 
     expect($failedPath)->not->toBeNull()
-        ->and(Storage::disk('local')->exists($failedPath))->toBeFalse()
+        ->and(Storage::disk('private')->exists($failedPath))->toBeFalse()
         ->and(InboundEmailReceipt::count())->toBe(0);
 
     $this->processor->processInboundEmail($email, $mailbox);
     $winningAttachment = Attachment::sole();
 
-    Storage::disk('local')->assertExists($winningAttachment->path);
+    Storage::disk('private')->assertExists($winningAttachment->path);
     expect($winningAttachment->path)->toBe($failedPath)
         ->and(InboundEmailReceipt::count())->toBe(1)
         ->and(Ticket::count())->toBe(1)
@@ -273,14 +274,14 @@ test('rollback cleanup completes before a retry reuses the stable attachment pat
 });
 
 test('retry adopts the same attachment path left by a hard crash', function () {
-    Storage::fake('local');
+    Storage::fake('private');
     $mailbox = Mailbox::factory()->create();
     $providerMessageId = 'imap:INBOX:123:abandoned-write';
     $idempotencyKey = hash('sha256', $mailbox->id."\0".$providerMessageId);
     $path = 'attachments/inbound/'.$idempotencyKey.'/'.hash('sha256', $idempotencyKey."\0".'0').'.txt';
 
     // Simulate a worker dying after storage succeeds but before its DB commit.
-    Storage::disk('local')->put($path, 'abandoned partial contents');
+    Storage::disk('private')->put($path, 'abandoned partial contents');
 
     $this->processor->processInboundEmail([
         'provider_message_id' => $providerMessageId,
@@ -297,8 +298,8 @@ test('retry adopts the same attachment path left by a hard crash', function () {
     $attachment = Attachment::sole();
 
     expect($attachment->path)->toBe($path)
-        ->and(Storage::disk('local')->allFiles())->toBe([$path])
-        ->and(Storage::disk('local')->get($path))->toBe('committed contents')
+        ->and(Storage::disk('private')->allFiles())->toBe([$path])
+        ->and(Storage::disk('private')->get($path))->toBe('committed contents')
         ->and(InboundEmailReceipt::count())->toBe(1)
         ->and(Ticket::count())->toBe(1)
         ->and(Message::count())->toBe(1)

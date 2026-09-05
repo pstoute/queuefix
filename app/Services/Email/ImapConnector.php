@@ -2,7 +2,9 @@
 
 namespace App\Services\Email;
 
+use App\Exceptions\AttachmentRejected;
 use App\Models\Mailbox;
+use App\Services\Attachments\InboundAttachmentPolicy;
 use Illuminate\Support\Facades\Log;
 
 class ImapConnector implements InboundEmailConnector
@@ -12,6 +14,13 @@ class ImapConnector implements InboundEmailConnector
     private Mailbox $mailbox;
 
     private ?int $uidValidity = null;
+
+    private InboundAttachmentPolicy $attachmentPolicy;
+
+    public function __construct(?InboundAttachmentPolicy $attachmentPolicy = null)
+    {
+        $this->attachmentPolicy = $attachmentPolicy ?? new InboundAttachmentPolicy;
+    }
 
     public function connect(Mailbox $mailbox): bool
     {
@@ -60,10 +69,10 @@ class ImapConnector implements InboundEmailConnector
         }
     }
 
-    public function fetchNewEmails(?\DateTimeInterface $since = null): array
+    public function fetchNewEmailReferences(?\DateTimeInterface $since = null): iterable
     {
         if (! $this->connection) {
-            return [];
+            return;
         }
 
         // Unseen state is the retry cursor. A timestamp filter could permanently
@@ -73,24 +82,43 @@ class ImapConnector implements InboundEmailConnector
         $emails = imap_search($this->connection, $criteria);
 
         if (! $emails) {
-            return [];
+            return;
         }
-
-        $messages = [];
 
         foreach ($emails as $emailNumber) {
-            try {
-                $messages[] = $this->parseEmail($emailNumber);
-            } catch (\Throwable $e) {
-                Log::warning('Failed to parse email', [
-                    'mailbox_id' => $this->mailbox->id,
-                    'email_number' => $emailNumber,
-                    'error' => $e->getMessage(),
-                ]);
+            $uid = imap_uid($this->connection, $emailNumber);
+
+            if ($uid && $this->uidValidity) {
+                yield [
+                    'provider_message_id' => "imap:INBOX:{$this->uidValidity}:{$uid}",
+                    'provider_remote_id' => (string) $uid,
+                    'uid_validity' => $this->uidValidity,
+                ];
             }
         }
+    }
 
-        return $messages;
+    public function fetchEmail(array $providerReference): array
+    {
+        if (! $this->connection || ! $this->uidValidity) {
+            throw new \RuntimeException('IMAP is not connected.');
+        }
+
+        $uid = (int) ($providerReference['provider_remote_id'] ?? 0);
+        $referenceUidValidity = (int) ($providerReference['uid_validity'] ?? 0);
+        $expectedIdentity = trim((string) ($providerReference['provider_message_id'] ?? ''));
+        $actualIdentity = "imap:INBOX:{$this->uidValidity}:{$uid}";
+
+        if ($uid < 1 || $referenceUidValidity !== $this->uidValidity || ! hash_equals($actualIdentity, $expectedIdentity)) {
+            throw new \UnexpectedValueException('IMAP provider reference is invalid or belongs to an expired UID epoch.');
+        }
+
+        $emailNumber = imap_msgno($this->connection, $uid);
+        if (! $emailNumber) {
+            throw new \UnexpectedValueException('IMAP provider message is no longer available.');
+        }
+
+        return $this->parseEmail($emailNumber);
     }
 
     private function parseEmail(int $emailNumber): array
@@ -111,15 +139,16 @@ class ImapConnector implements InboundEmailConnector
             ? $header->to[0]->mailbox.'@'.$header->to[0]->host
             : null;
 
-        $body = $this->getBody($emailNumber, $structure);
-        $attachments = $this->getAttachments($emailNumber, $structure);
+        $parts = $this->leafParts($structure);
+        $attachmentResult = $this->getAttachments($emailNumber, $parts);
+        $body = $this->getBody($emailNumber, $parts);
 
         $rawHeader = imap_fetchheader($this->connection, $emailNumber);
         $messageId = $this->extractHeader($rawHeader, 'Message-ID');
         $inReplyTo = $this->extractHeader($rawHeader, 'In-Reply-To');
         $references = $this->extractHeader($rawHeader, 'References');
 
-        return [
+        $emailData = [
             'provider_message_id' => "imap:INBOX:{$this->uidValidity}:{$uid}",
             'provider_remote_id' => (string) $uid,
             'from_email' => $fromAddress,
@@ -132,8 +161,14 @@ class ImapConnector implements InboundEmailConnector
             'in_reply_to' => $inReplyTo,
             'references' => $references,
             'date' => $header->date ?? null,
-            'attachments' => $attachments,
+            'attachments' => $attachmentResult['attachments'],
         ];
+
+        if ($attachmentResult['rejection'] !== null) {
+            $emailData['attachment_rejection'] = $attachmentResult['rejection'];
+        }
+
+        return $emailData;
     }
 
     /**
@@ -162,79 +197,231 @@ class ImapConnector implements InboundEmailConnector
         }
     }
 
-    private function getBody(int $emailNumber, object $structure): array
+    /**
+     * @param  list<array{part: object, section: string}>  $parts
+     * @return array{text: ?string, html: ?string}
+     */
+    private function getBody(int $emailNumber, array $parts): array
     {
         $body = ['text' => null, 'html' => null];
+        $bodyParts = array_values(array_filter(
+            $parts,
+            fn (array $descriptor): bool => $this->isBodyPart($descriptor['part']),
+        ));
+        $maxBodyBytes = (int) config('attachments.max_body_bytes');
+        $declaredBytes = 0;
 
-        if ($structure->type === 0) {
-            $content = imap_fetchbody($this->connection, $emailNumber, '1', FT_PEEK);
-            $content = $this->decodeContent($content, $structure->encoding);
+        foreach ($bodyParts as $descriptor) {
+            $size = filter_var($descriptor['part']->bytes ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 0],
+            ]);
 
-            if ($structure->subtype === 'PLAIN') {
-                $body['text'] = $content;
-            } else {
-                $body['html'] = $content;
+            if ($size === false || $size > $maxBodyBytes - $declaredBytes) {
+                return $this->omittedBody();
             }
-        } elseif ($structure->type === 1) {
-            foreach ($structure->parts as $index => $part) {
-                $section = (string) ($index + 1);
-                $content = imap_fetchbody($this->connection, $emailNumber, $section, FT_PEEK);
-                $content = $this->decodeContent($content, $part->encoding);
 
-                if ($part->subtype === 'PLAIN') {
+            $declaredBytes += $size;
+        }
+
+        $actualBytes = 0;
+
+        try {
+            foreach ($bodyParts as $descriptor) {
+                $part = $descriptor['part'];
+                $content = $this->fetchPartContent(
+                    $emailNumber,
+                    $descriptor['section'],
+                    (int) ($part->encoding ?? 0),
+                );
+
+                if (strlen($content) > $maxBodyBytes - $actualBytes) {
+                    return $this->omittedBody();
+                }
+
+                $actualBytes += strlen($content);
+
+                if (strtoupper((string) ($part->subtype ?? '')) === 'PLAIN') {
                     $body['text'] = $content;
-                } elseif ($part->subtype === 'HTML') {
+                } else {
                     $body['html'] = $content;
                 }
             }
+        } catch (AttachmentRejected) {
+            return $this->omittedBody();
         }
 
         return $body;
     }
 
+    /** @return array{text: string, html: null} */
+    private function omittedBody(): array
+    {
+        return [
+            'text' => '[Inbound message body omitted because it exceeded the configured safety limit.]',
+            'html' => null,
+        ];
+    }
+
     private function decodeContent(string $content, int $encoding): string
     {
         return match ($encoding) {
-            3 => base64_decode($content),
+            3 => $this->decodeBase64($content),
             4 => quoted_printable_decode($content),
             default => $content,
         };
     }
 
-    private function getAttachments(int $emailNumber, object $structure): array
+    /**
+     * @param  list<array{part: object, section: string}>  $parts
+     * @return array{attachments: list<array{filename: string, content: string, mime_type: string, size: int}>, rejection: ?array{reason_code: string, reported_count: int, reported_bytes: int}}
+     */
+    private function getAttachments(int $emailNumber, array $parts): array
     {
-        $attachments = [];
+        $descriptors = [];
 
-        if (! isset($structure->parts)) {
-            return $attachments;
-        }
+        foreach ($parts as $partDescriptor) {
+            $part = $partDescriptor['part'];
 
-        foreach ($structure->parts as $index => $part) {
-            if ($part->ifdisposition && strtolower($part->disposition) === 'attachment') {
-                $filename = 'unnamed';
-                if ($part->ifdparameters) {
-                    foreach ($part->dparameters as $param) {
-                        if (strtolower($param->attribute) === 'filename') {
-                            $filename = $param->value;
-                            break;
-                        }
-                    }
-                }
-
-                $section = (string) ($index + 1);
-                $content = imap_fetchbody($this->connection, $emailNumber, $section, FT_PEEK);
-                $content = $this->decodeContent($content, $part->encoding);
-
-                $attachments[] = [
-                    'filename' => $filename,
-                    'content' => $content,
+            if (! $this->isBodyPart($part)) {
+                $descriptors[] = [
+                    'section' => $partDescriptor['section'],
+                    'filename' => $this->attachmentFilename($part, $partDescriptor['section']),
                     'mime_type' => $this->getMimeType($part),
-                    'size' => strlen($content),
+                    'encoding' => (int) ($part->encoding ?? 0),
+                    'size' => $part->bytes ?? null,
                 ];
             }
         }
 
-        return $attachments;
+        try {
+            $this->attachmentPolicy->assertMetadata($descriptors, $this->mailbox);
+        } catch (AttachmentRejected $exception) {
+            return [
+                'attachments' => [],
+                'rejection' => $this->attachmentPolicy->rejection($exception, $descriptors),
+            ];
+        }
+
+        $attachments = [];
+        $actualBytes = 0;
+
+        try {
+            foreach ($descriptors as $descriptor) {
+                $content = $this->fetchPartContent(
+                    $emailNumber,
+                    $descriptor['section'],
+                    (int) $descriptor['encoding'],
+                );
+                $this->attachmentPolicy->assertContent($content, $actualBytes);
+
+                $attachments[] = [
+                    'filename' => $descriptor['filename'],
+                    'content' => $content,
+                    'mime_type' => $descriptor['mime_type'],
+                    'size' => strlen($content),
+                ];
+            }
+        } catch (AttachmentRejected $exception) {
+            return [
+                'attachments' => [],
+                'rejection' => $this->attachmentPolicy->rejection($exception, $descriptors),
+            ];
+        }
+
+        return ['attachments' => $attachments, 'rejection' => null];
+    }
+
+    private function fetchPartContent(int $emailNumber, string $section, int $encoding): string
+    {
+        $content = imap_fetchbody($this->connection, $emailNumber, $section, FT_PEEK);
+
+        if (! is_string($content)) {
+            throw new \RuntimeException('IMAP message part fetch failed.');
+        }
+
+        return $this->decodeContent($content, $encoding);
+    }
+
+    /**
+     * Flatten every MIME leaf so nested and inline binary parts cannot bypass
+     * attachment admission by hiding outside the top-level part list.
+     *
+     * @return list<array{part: object, section: string}>
+     */
+    private function leafParts(object $part, string $section = ''): array
+    {
+        if (isset($part->parts) && is_array($part->parts) && $part->parts !== []) {
+            $leaves = [];
+
+            foreach ($part->parts as $index => $child) {
+                $childSection = $section === ''
+                    ? (string) ($index + 1)
+                    : $section.'.'.($index + 1);
+                array_push($leaves, ...$this->leafParts($child, $childSection));
+            }
+
+            return $leaves;
+        }
+
+        return [[
+            'part' => $part,
+            'section' => $section === '' ? '1' : $section,
+        ]];
+    }
+
+    private function isBodyPart(object $part): bool
+    {
+        $subtype = strtoupper((string) ($part->subtype ?? ''));
+        $disposition = strtolower((string) ($part->disposition ?? ''));
+
+        return (int) ($part->type ?? -1) === 0
+            && in_array($subtype, ['PLAIN', 'HTML'], true)
+            && $disposition !== 'attachment'
+            && $this->partParameter($part, ['filename', 'name']) === null;
+    }
+
+    private function attachmentFilename(object $part, string $section): string
+    {
+        $filename = $this->partParameter($part, ['filename', 'name']);
+
+        if ($filename !== null && trim($filename) !== '') {
+            return $filename;
+        }
+
+        $subtype = strtolower(preg_replace('/[^a-z0-9]+/i', '', (string) ($part->subtype ?? 'bin')) ?: 'bin');
+
+        return 'inline-'.str_replace('.', '-', $section).'.'.$subtype;
+    }
+
+    /** @param list<string> $attributes */
+    private function partParameter(object $part, array $attributes): ?string
+    {
+        foreach (['dparameters', 'parameters'] as $parameterProperty) {
+            $parameters = $part->{$parameterProperty} ?? [];
+
+            if (! is_array($parameters)) {
+                continue;
+            }
+
+            foreach ($parameters as $parameter) {
+                if (in_array(strtolower((string) ($parameter->attribute ?? '')), $attributes, true)) {
+                    return (string) ($parameter->value ?? '');
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function decodeBase64(string $content): string
+    {
+        $decoded = base64_decode($content, true);
+
+        if ($decoded === false) {
+            throw new AttachmentRejected('invalid_content', 'An attachment could not be decoded safely.');
+        }
+
+        return $decoded;
     }
 
     private function getMimeType(object $part): string
@@ -242,7 +429,7 @@ class ImapConnector implements InboundEmailConnector
         $types = [0 => 'text', 1 => 'multipart', 2 => 'message', 3 => 'application', 4 => 'audio', 5 => 'image', 6 => 'video', 7 => 'other'];
         $type = $types[$part->type] ?? 'application';
 
-        return $type.'/'.strtolower($part->subtype);
+        return $type.'/'.strtolower((string) ($part->subtype ?? 'octet-stream'));
     }
 
     private function extractHeader(string $rawHeader, string $headerName): ?string

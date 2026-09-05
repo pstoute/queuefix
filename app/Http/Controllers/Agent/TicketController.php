@@ -2,18 +2,25 @@
 
 namespace App\Http\Controllers\Agent;
 
+use App\Enums\AttachmentScanStatus;
 use App\Enums\MessageType;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
+use App\Exceptions\AttachmentRejected;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendEmailReplyJob;
+use App\Models\Attachment;
 use App\Models\Customer;
 use App\Models\Department;
+use App\Models\Message;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Services\Attachments\AttachmentService;
 use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -21,6 +28,7 @@ class TicketController extends Controller
 {
     public function __construct(
         private TicketService $ticketService,
+        private AttachmentService $attachmentService,
     ) {}
 
     public function index(Request $request): Response
@@ -91,6 +99,16 @@ class TicketController extends Controller
             },
         ]);
 
+        $ticket->messages->each(function ($message): void {
+            assert($message instanceof Message);
+            $message->attachments->each(function ($attachment): void {
+                assert($attachment instanceof Attachment);
+                if ($attachment->scan_status === AttachmentScanStatus::Clean) {
+                    $attachment->setAttribute('url', route('agent.attachments.download', $attachment));
+                }
+            });
+        });
+
         return Inertia::render('Agent/Tickets/Show', [
             'ticket' => $ticket,
             'agents' => User::where('is_active', true)->select('id', 'name', 'email', 'avatar')->get(),
@@ -134,17 +152,29 @@ class TicketController extends Controller
         $validated = $request->validate([
             'body' => 'required|string',
             'type' => 'sometimes|string|in:reply,internal_note',
+            'attachments' => 'sometimes|array|max:'.config('attachments.max_files_per_message'),
+            'attachments.*' => 'file',
         ]);
 
         $type = MessageType::from($validated['type'] ?? 'reply');
 
-        $message = $this->ticketService->addMessage($ticket, [
-            'type' => $type,
-            'body_text' => strip_tags($validated['body']),
-            'body_html' => $validated['body'],
-            'sender_type' => User::class,
-            'sender_id' => $request->user()->id,
-        ]);
+        try {
+            $message = DB::transaction(function () use ($ticket, $validated, $type, $request) {
+                $message = $this->ticketService->addMessage($ticket, [
+                    'type' => $type,
+                    'body_text' => strip_tags($validated['body']),
+                    'body_html' => $validated['body'],
+                    'sender_type' => User::class,
+                    'sender_id' => $request->user()->id,
+                ]);
+
+                $this->attachmentService->storeForMessage($message, $request->file('attachments', []));
+
+                return $message;
+            });
+        } catch (AttachmentRejected $exception) {
+            throw ValidationException::withMessages(['attachments' => $exception->getMessage()]);
+        }
 
         if ($type === MessageType::Reply && $ticket->mailbox_id) {
             SendEmailReplyJob::dispatch($ticket->id, $message->id);

@@ -69,15 +69,17 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
   const [replyType, setReplyType] = useState<'reply' | 'internal_note'>('reply');
   const [newTag, setNewTag] = useState('');
 
-  const { data, setData, post, processing, reset } = useForm({
+  const { data, setData, post, processing, reset, errors } = useForm({
     body: '',
     type: 'reply' as 'reply' | 'internal_note',
+    attachments: [] as File[],
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     post(`/agent/tickets/${ticket.id}/reply`, {
       preserveScroll: true,
+      forceFormData: true,
       onSuccess: () => {
         reset();
         setReplyType('reply');
@@ -250,19 +252,25 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                             {message.attachments && message.attachments.length > 0 && (
                               <div className="mt-3 pt-3 border-t space-y-2">
                                 {message.attachments.map((attachment) => (
-                                  <a
-                                    key={attachment.id}
-                                    href={attachment.url}
-                                    className="flex items-center gap-2 text-sm text-primary hover:underline"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                  >
+                                  <div key={attachment.id} className="flex items-center gap-2 text-sm">
                                     <Paperclip className="h-4 w-4" />
-                                    {attachment.filename}
+                                    {attachment.url ? (
+                                      <a href={attachment.url} className="text-primary hover:underline">
+                                        {attachment.filename}
+                                      </a>
+                                    ) : (
+                                      <span>{attachment.filename}</span>
+                                    )}
                                     <span className="text-xs text-muted-foreground">
                                       ({Math.round(attachment.size / 1024)} KB)
                                     </span>
-                                  </a>
+                                    {attachment.scan_status === 'pending' && (
+                                      <Badge variant="outline" className="text-xs">Security scan pending</Badge>
+                                    )}
+                                    {attachment.scan_status === 'rejected' && (
+                                      <Badge variant="destructive" className="text-xs">Rejected</Badge>
+                                    )}
+                                  </div>
                                 ))}
                               </div>
                             )}
@@ -317,6 +325,27 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                           'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800'
                       )}
                     />
+
+                    <div className="space-y-2">
+                      <Label htmlFor="attachments" className="text-sm">Attachments</Label>
+                      <input
+                        id="attachments"
+                        type="file"
+                        multiple
+                        accept=".pdf,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp,.docx,.xlsx,.pptx"
+                        onChange={(event) => setData('attachments', Array.from(event.target.files ?? []))}
+                        className="block w-full text-sm text-muted-foreground file:mr-4 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-sm file:font-medium"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Up to 10 files; 10 MB each and 25 MB total. Archives, active content, and executables are blocked.
+                      </p>
+                      {data.attachments.length > 0 && (
+                        <ul className="text-xs text-muted-foreground" aria-live="polite">
+                          {data.attachments.map((file) => <li key={`${file.name}-${file.lastModified}`}>{file.name}</li>)}
+                        </ul>
+                      )}
+                      {errors.attachments && <p className="text-sm text-destructive">{errors.attachments}</p>}
+                    </div>
 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">

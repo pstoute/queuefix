@@ -2,8 +2,11 @@
 
 namespace App\Services\Email;
 
+use App\Exceptions\AttachmentRejected;
 use App\Models\Mailbox;
+use App\Services\Attachments\InboundAttachmentPolicy;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use UnexpectedValueException;
@@ -15,6 +18,13 @@ class MicrosoftGraphConnector implements InboundEmailConnector
     private string $baseUrl = 'https://graph.microsoft.com/v1.0';
 
     private ?string $accessToken = null;
+
+    private InboundAttachmentPolicy $attachmentPolicy;
+
+    public function __construct(?InboundAttachmentPolicy $attachmentPolicy = null)
+    {
+        $this->attachmentPolicy = $attachmentPolicy ?? new InboundAttachmentPolicy;
+    }
 
     public function connect(Mailbox $mailbox): bool
     {
@@ -76,10 +86,10 @@ class MicrosoftGraphConnector implements InboundEmailConnector
         return null;
     }
 
-    public function fetchNewEmails(?\DateTimeInterface $since = null): array
+    public function fetchNewEmailReferences(?\DateTimeInterface $since = null): iterable
     {
         if (! $this->accessToken) {
-            return [];
+            return;
         }
 
         try {
@@ -92,7 +102,7 @@ class MicrosoftGraphConnector implements InboundEmailConnector
                     '$filter' => $filter,
                     '$top' => 50,
                     '$orderby' => 'receivedDateTime desc',
-                    '$select' => 'id,subject,from,toRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments,internetMessageId',
+                    '$select' => 'id',
                 ]);
 
             if (! $response->successful()) {
@@ -104,29 +114,47 @@ class MicrosoftGraphConnector implements InboundEmailConnector
                 return [];
             }
 
-            $messages = [];
-
             foreach ($response->json('value', []) as $msg) {
-                try {
-                    $messages[] = $this->parseMessage($msg);
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to parse Graph message', [
-                        'mailbox_id' => $this->mailbox->id,
-                        'message_id' => $msg['id'] ?? 'unknown',
-                        'error' => $e->getMessage(),
-                    ]);
+                $messageId = trim((string) ($msg['id'] ?? ''));
+
+                if ($messageId !== '') {
+                    yield [
+                        'provider_message_id' => 'microsoft:'.$messageId,
+                        'provider_remote_id' => $messageId,
+                    ];
                 }
             }
-
-            return $messages;
         } catch (\Throwable $e) {
             Log::error('Microsoft Graph fetch error', [
                 'mailbox_id' => $this->mailbox->id,
                 'error' => $e->getMessage(),
             ]);
-
-            return [];
         }
+    }
+
+    public function fetchEmail(array $providerReference): array
+    {
+        if (! $this->accessToken) {
+            throw new \RuntimeException('Microsoft Graph is not connected.');
+        }
+
+        $messageId = trim((string) ($providerReference['provider_remote_id'] ?? ''));
+        $expectedIdentity = trim((string) ($providerReference['provider_message_id'] ?? ''));
+
+        if ($messageId === '' || ! hash_equals('microsoft:'.$messageId, $expectedIdentity)) {
+            throw new UnexpectedValueException('Microsoft Graph provider reference is invalid.');
+        }
+
+        $encodedMessageId = rawurlencode($messageId);
+        $response = $this->client()->get("{$this->baseUrl}/me/messages/{$encodedMessageId}", [
+            '$select' => 'id,subject,from,toRecipients,body,receivedDateTime,internetMessageHeaders,hasAttachments,internetMessageId',
+        ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('Microsoft Graph message fetch failed.');
+        }
+
+        return $this->parseMessage($response->json());
     }
 
     private function parseMessage(array $msg): array
@@ -138,13 +166,13 @@ class MicrosoftGraphConnector implements InboundEmailConnector
         }
 
         $headers = $this->extractInternetHeaders($msg['internetMessageHeaders'] ?? []);
-        $attachments = [];
+        $attachmentResult = ['attachments' => [], 'rejection' => null];
 
         if ($msg['hasAttachments'] ?? false) {
-            $attachments = $this->fetchAttachments($msg['id']);
+            $attachmentResult = $this->fetchAttachments($msg['id']);
         }
 
-        return [
+        $emailData = [
             'provider_message_id' => 'microsoft:'.$providerMessageId,
             'provider_remote_id' => $providerMessageId,
             'from_email' => strtolower($msg['from']['emailAddress']['address'] ?? ''),
@@ -157,8 +185,14 @@ class MicrosoftGraphConnector implements InboundEmailConnector
             'in_reply_to' => $headers['In-Reply-To'] ?? null,
             'references' => $headers['References'] ?? null,
             'date' => $msg['receivedDateTime'] ?? null,
-            'attachments' => $attachments,
+            'attachments' => $attachmentResult['attachments'],
         ];
+
+        if ($attachmentResult['rejection'] !== null) {
+            $emailData['attachment_rejection'] = $attachmentResult['rejection'];
+        }
+
+        return $emailData;
     }
 
     /**
@@ -199,30 +233,106 @@ class MicrosoftGraphConnector implements InboundEmailConnector
         return $result;
     }
 
+    /**
+     * @return array{attachments: list<array{filename: string, content: string, mime_type: string, size: int}>, rejection: ?array{reason_code: string, reported_count: int, reported_bytes: int}}
+     */
     private function fetchAttachments(string $messageId): array
     {
         $encodedMessageId = rawurlencode($messageId);
-        $response = $this->client()
-            ->get("{$this->baseUrl}/me/messages/{$encodedMessageId}/attachments");
+        $response = $this->client()->get("{$this->baseUrl}/me/messages/{$encodedMessageId}/attachments", [
+            '$top' => (int) config('attachments.max_files_per_message') + 1,
+            '$select' => 'id,name,contentType,size,isInline',
+        ]);
 
         if (! $response->successful()) {
-            return [];
+            throw new \RuntimeException('Microsoft Graph attachment metadata fetch failed.');
         }
 
-        $attachments = [];
+        $descriptors = [];
 
         foreach ($response->json('value', []) as $att) {
             if (($att['@odata.type'] ?? '') === '#microsoft.graph.fileAttachment') {
-                $attachments[] = [
+                $descriptors[] = [
+                    'id' => (string) ($att['id'] ?? ''),
                     'filename' => $att['name'],
-                    'content' => base64_decode($att['contentBytes']),
                     'mime_type' => $att['contentType'] ?? 'application/octet-stream',
-                    'size' => $att['size'] ?? 0,
+                    'size' => $att['size'] ?? null,
                 ];
             }
         }
 
-        return $attachments;
+        try {
+            $responseData = $response->json();
+            if (is_array($responseData) && isset($responseData['@odata.nextLink'])) {
+                throw new AttachmentRejected('too_many_files', 'The provider returned more attachments than one message may contain.');
+            }
+
+            $this->attachmentPolicy->assertMetadata($descriptors, $this->mailbox);
+        } catch (AttachmentRejected $exception) {
+            return [
+                'attachments' => [],
+                'rejection' => $this->attachmentPolicy->rejection($exception, $descriptors),
+            ];
+        }
+
+        $attachments = [];
+        $actualBytes = 0;
+
+        try {
+            foreach ($descriptors as $descriptor) {
+                $attachmentId = trim($descriptor['id']);
+                if ($attachmentId === '') {
+                    throw new AttachmentRejected('invalid_metadata', 'An attachment did not include a stable provider identity.');
+                }
+
+                $encodedAttachmentId = rawurlencode($attachmentId);
+                $contentResponse = $this->client()->withOptions(['stream' => true])->get(
+                    "{$this->baseUrl}/me/messages/{$encodedMessageId}/attachments/{$encodedAttachmentId}/\$value",
+                );
+
+                if (! $contentResponse->successful()) {
+                    throw new \RuntimeException('Microsoft Graph attachment content fetch failed.');
+                }
+
+                $content = $this->readBoundedContent($contentResponse, $actualBytes);
+                $attachments[] = [
+                    'filename' => (string) $descriptor['filename'],
+                    'content' => $content,
+                    'mime_type' => (string) $descriptor['mime_type'],
+                    'size' => strlen($content),
+                ];
+            }
+        } catch (AttachmentRejected $exception) {
+            return [
+                'attachments' => [],
+                'rejection' => $this->attachmentPolicy->rejection($exception, $descriptors),
+            ];
+        }
+
+        return ['attachments' => $attachments, 'rejection' => null];
+    }
+
+    private function readBoundedContent(Response $response, int &$actualBytes): string
+    {
+        $remainingMessageBytes = max(0, (int) config('attachments.max_message_bytes') - $actualBytes);
+        $readLimit = min((int) config('attachments.max_file_bytes'), $remainingMessageBytes);
+        $stream = $response->toPsrResponse()->getBody();
+        $content = '';
+
+        while (! $stream->eof() && strlen($content) <= $readLimit) {
+            $bytesToRead = min(8192, $readLimit + 1 - strlen($content));
+            $chunk = $stream->read($bytesToRead);
+
+            if ($chunk === '') {
+                throw new \RuntimeException('Microsoft Graph attachment stream stopped before completion.');
+            }
+
+            $content .= $chunk;
+        }
+
+        $this->attachmentPolicy->assertContent($content, $actualBytes);
+
+        return $content;
     }
 
     public function sendEmail(array $data): bool

@@ -145,12 +145,6 @@ parameters:
 			path: app/Http/Middleware/EnsureAdmin.php
 
 		-
-			message: '#^Method App\\Jobs\\ProcessInboundEmailJob\:\:__construct\(\) has parameter \$emailData with no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Jobs/ProcessInboundEmailJob.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$email\.$#'
 			identifier: property.notFound
 			count: 1
@@ -553,18 +547,6 @@ parameters:
 			path: app/Services/Email/GmailConnector.php
 
 		-
-			message: '#^Method App\\Services\\Email\\GmailConnector\:\:extractAttachments\(\) has parameter \$payload with no type specified\.$#'
-			identifier: missingType.parameter
-			count: 1
-			path: app/Services/Email/GmailConnector.php
-
-		-
-			message: '#^Method App\\Services\\Email\\GmailConnector\:\:extractAttachments\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/Email/GmailConnector.php
-
-		-
 			message: '#^Method App\\Services\\Email\\GmailConnector\:\:extractBody\(\) has parameter \$payload with no type specified\.$#'
 			identifier: missingType.parameter
 			count: 1
@@ -610,18 +592,6 @@ parameters:
 			message: '#^Call to an undefined method App\\Models\\Mailbox\:\:getDecryptedCredential\(\)\.$#'
 			identifier: method.notFound
 			count: 6
-			path: app/Services/Email/ImapConnector.php
-
-		-
-			message: '#^Method App\\Services\\Email\\ImapConnector\:\:getAttachments\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/Email/ImapConnector.php
-
-		-
-			message: '#^Method App\\Services\\Email\\ImapConnector\:\:getBody\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
 			path: app/Services/Email/ImapConnector.php
 
 		-
@@ -692,12 +662,6 @@ parameters:
 
 		-
 			message: '#^Method App\\Services\\Email\\MicrosoftGraphConnector\:\:extractInternetHeaders\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/Email/MicrosoftGraphConnector.php
-
-		-
-			message: '#^Method App\\Services\\Email\\MicrosoftGraphConnector\:\:fetchAttachments\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: app/Services/Email/MicrosoftGraphConnector.php

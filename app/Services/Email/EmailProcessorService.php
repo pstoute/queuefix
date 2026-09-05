@@ -4,7 +4,7 @@ namespace App\Services\Email;
 
 use App\Enums\MessageType;
 use App\Enums\TicketStatus;
-use App\Models\Attachment;
+use App\Exceptions\AttachmentRejected;
 use App\Models\Customer;
 use App\Models\InboundEmailReceipt;
 use App\Models\Mailbox;
@@ -12,11 +12,11 @@ use App\Models\MailboxAlias;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Services\Attachments\AttachmentService;
 use App\Services\TicketService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use RuntimeException;
 use Throwable;
 use UnexpectedValueException;
 
@@ -24,6 +24,7 @@ class EmailProcessorService
 {
     public function __construct(
         private TicketService $ticketService,
+        private AttachmentService $attachmentService,
     ) {}
 
     public function processInboundEmail(array $emailData, Mailbox $mailbox): ?Ticket
@@ -174,6 +175,8 @@ class EmailProcessorService
 
     /**
      * @param  list<string>  $storedAttachmentPaths
+     *
+     * @param-out list<string> $storedAttachmentPaths
      */
     private function createNewTicket(
         array $emailData,
@@ -205,6 +208,7 @@ class EmailProcessorService
             $this->processAttachments(
                 $message,
                 $emailData['attachments'] ?? [],
+                $emailData['attachment_rejection'] ?? null,
                 $idempotencyKey,
                 $storedAttachmentPaths,
             );
@@ -215,6 +219,8 @@ class EmailProcessorService
 
     /**
      * @param  list<string>  $storedAttachmentPaths
+     *
+     * @param-out list<string> $storedAttachmentPaths
      */
     private function appendToTicket(
         Ticket $ticket,
@@ -246,6 +252,7 @@ class EmailProcessorService
         $this->processAttachments(
             $message,
             $emailData['attachments'] ?? [],
+            $emailData['attachment_rejection'] ?? null,
             $idempotencyKey,
             $storedAttachmentPaths,
         );
@@ -254,36 +261,48 @@ class EmailProcessorService
     }
 
     /**
+     * @param  array{reason_code?: mixed, reported_count?: mixed, reported_bytes?: mixed}|null  $providerRejection
      * @param  list<string>  $storedAttachmentPaths
+     *
+     * @param-out list<string> $storedAttachmentPaths
      */
     private function processAttachments(
         Message $message,
         array $attachments,
+        ?array $providerRejection,
         string $idempotencyKey,
         array &$storedAttachmentPaths,
     ): void {
-        foreach ($attachments as $index => $attachment) {
-            $filename = $attachment['filename'] ?? 'unnamed';
-            $extension = preg_replace('/[^a-zA-Z0-9]/', '', pathinfo($filename, PATHINFO_EXTENSION));
-            $storageName = hash('sha256', $idempotencyKey."\0".$index);
-            $path = 'attachments/inbound/'.$idempotencyKey.'/'.$storageName;
+        if ($providerRejection !== null) {
+            $this->attachmentService->recordInboundRejection($message, $providerRejection);
 
-            if ($extension !== '') {
-                $path .= '.'.strtolower($extension);
+            return;
+        }
+
+        try {
+            $this->attachmentService->storeForMessage(
+                $message,
+                $attachments,
+                $idempotencyKey,
+                $storedAttachmentPaths,
+            );
+        } catch (AttachmentRejected $exception) {
+            if (! $this->attachmentService->isTerminalRejection($exception)) {
+                throw $exception;
             }
 
-            if (! Storage::disk('local')->put($path, $attachment['content'])) {
-                throw new RuntimeException('Unable to store inbound email attachment.');
+            $reportedBytes = 0;
+            foreach ($attachments as $attachment) {
+                $content = $attachment['content'] ?? null;
+                if (is_string($content)) {
+                    $reportedBytes = min(2_147_483_647, $reportedBytes + strlen($content));
+                }
             }
 
-            $storedAttachmentPaths[] = $path;
-
-            Attachment::create([
-                'message_id' => $message->id,
-                'filename' => $filename,
-                'path' => $path,
-                'mime_type' => $attachment['mime_type'] ?? 'application/octet-stream',
-                'size' => strlen($attachment['content']),
+            $this->attachmentService->recordInboundRejection($message, [
+                'reason_code' => $exception->reasonCode,
+                'reported_count' => count($attachments),
+                'reported_bytes' => $reportedBytes,
             ]);
         }
     }
@@ -294,7 +313,7 @@ class EmailProcessorService
     private function deleteStoredAttachments(array $paths): void
     {
         if ($paths !== []) {
-            Storage::disk('local')->delete($paths);
+            Storage::disk((string) config('attachments.disk'))->delete($paths);
         }
     }
 

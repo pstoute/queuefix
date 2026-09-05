@@ -10,6 +10,7 @@ import { Separator } from '@/Components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/Components/ui/avatar';
 import { SafeMessageBody } from '@/Components/SafeMessageBody';
 import { format } from 'date-fns';
+import { Paperclip } from 'lucide-react';
 
 interface CustomerTicketShowProps {
     ticket: Ticket;
@@ -19,11 +20,13 @@ interface CustomerTicketShowProps {
 export default function CustomerTicketShow({ ticket, customer }: CustomerTicketShowProps) {
     const { data, setData, post, processing, errors, reset } = useForm({
         body: '',
+        attachments: [] as File[],
     });
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
         post(route('customer.tickets.reply', ticket.id), {
+            forceFormData: true,
             onSuccess: () => reset(),
         });
     };
@@ -138,6 +141,31 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
                                             bodyHtml={message.body_html}
                                             bodyText={message.body_text}
                                         />
+                                        {message.attachments && message.attachments.length > 0 && (
+                                            <div className="mt-4 space-y-2 border-t pt-3">
+                                                {message.attachments.map((attachment) => (
+                                                    <div key={attachment.id} className="flex items-center gap-2 text-sm">
+                                                        <Paperclip className="h-4 w-4" />
+                                                        {attachment.url ? (
+                                                            <a href={attachment.url} className="text-primary hover:underline">
+                                                                {attachment.filename}
+                                                            </a>
+                                                        ) : (
+                                                            <span>{attachment.filename}</span>
+                                                        )}
+                                                        <span className="text-xs text-gray-500">
+                                                            ({Math.round(attachment.size / 1024)} KB)
+                                                        </span>
+                                                        {attachment.scan_status === 'pending' && (
+                                                            <Badge variant="outline">Security scan pending</Badge>
+                                                        )}
+                                                        {attachment.scan_status === 'rejected' && (
+                                                            <Badge variant="destructive">Rejected</Badge>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </CardContent>
                                 </Card>
                             );
@@ -163,6 +191,24 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
                                     />
                                     {errors.body && (
                                         <p className="text-sm text-destructive">{errors.body}</p>
+                                    )}
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label htmlFor="customer-attachments" className="text-sm font-medium">
+                                        Attachments
+                                    </label>
+                                    <input
+                                        id="customer-attachments"
+                                        type="file"
+                                        multiple
+                                        accept=".pdf,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp,.docx,.xlsx,.pptx"
+                                        onChange={(event) => setData('attachments', Array.from(event.target.files ?? []))}
+                                        className="block w-full text-sm text-gray-600 file:mr-4 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm file:font-medium"
+                                    />
+                                    <p className="text-xs text-gray-500">Up to 10 files; 10 MB each and 25 MB total.</p>
+                                    {errors.attachments && (
+                                        <p className="text-sm text-destructive">{errors.attachments}</p>
                                     )}
                                 </div>
 

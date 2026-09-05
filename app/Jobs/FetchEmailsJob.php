@@ -47,11 +47,9 @@ class FetchEmailsJob implements ShouldQueue
 
         /** @var \DateTimeInterface|null $lastCheckedAt */
         $lastCheckedAt = $mailbox->last_checked_at;
-        $emails = $connector->fetchNewEmails($lastCheckedAt);
-
-        foreach ($emails as $emailData) {
+        foreach ($connector->fetchNewEmailReferences($lastCheckedAt) as $providerReference) {
             try {
-                ProcessInboundEmailJob::dispatch($emailData, $mailbox->id);
+                ProcessInboundEmailJob::dispatch($providerReference, $mailbox->id);
             } catch (\Throwable $e) {
                 Log::error('Failed to dispatch email processing', [
                     'mailbox_id' => $mailbox->id,
@@ -60,7 +58,6 @@ class FetchEmailsJob implements ShouldQueue
 
                 continue;
             }
-
         }
 
         $mailbox->update(['last_checked_at' => now()]);

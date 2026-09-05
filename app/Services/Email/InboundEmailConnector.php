@@ -9,9 +9,20 @@ interface InboundEmailConnector
     public function connect(Mailbox $mailbox): bool;
 
     /**
-     * @return list<array<string, mixed>>
+     * Return lightweight provider references only. Message bodies and attachment
+     * bytes must not cross the queue serialization boundary.
+     *
+     * @return iterable<int, array<string, scalar|null>>
      */
-    public function fetchNewEmails(?\DateTimeInterface $since = null): array;
+    public function fetchNewEmailReferences(?\DateTimeInterface $since = null): iterable;
+
+    /**
+     * Hydrate exactly one provider message inside its processing job.
+     *
+     * @param  array<string, scalar|null>  $providerReference
+     * @return array<string, mixed>
+     */
+    public function fetchEmail(array $providerReference): array;
 
     /**
      * @param  array<string, mixed>  $emailData

@@ -2,9 +2,12 @@
 
 namespace App\Services\Email;
 
+use App\Exceptions\AttachmentRejected;
 use App\Models\Mailbox;
+use App\Services\Attachments\InboundAttachmentPolicy;
 use Google\Client as GoogleClient;
 use Google\Service\Gmail;
+use Google\Service\Gmail\MessagePart;
 use Google\Service\Gmail\ModifyMessageRequest;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\Mime\Email;
@@ -14,6 +17,13 @@ class GmailConnector implements InboundEmailConnector
     private ?Gmail $service = null;
 
     private Mailbox $mailbox;
+
+    private InboundAttachmentPolicy $attachmentPolicy;
+
+    public function __construct(?InboundAttachmentPolicy $attachmentPolicy = null)
+    {
+        $this->attachmentPolicy = $attachmentPolicy ?? new InboundAttachmentPolicy;
+    }
 
     public function connect(Mailbox $mailbox): bool
     {
@@ -50,10 +60,10 @@ class GmailConnector implements InboundEmailConnector
         }
     }
 
-    public function fetchNewEmails(?\DateTimeInterface $since = null): array
+    public function fetchNewEmailReferences(?\DateTimeInterface $since = null): iterable
     {
         if (! $this->service) {
-            return [];
+            return;
         }
 
         try {
@@ -66,29 +76,38 @@ class GmailConnector implements InboundEmailConnector
                 'maxResults' => 50,
             ]);
 
-            $messages = [];
-
             foreach ($results->getMessages() as $msgRef) {
-                try {
-                    $messages[] = $this->parseMessage($msgRef->getId());
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to parse Gmail message', [
-                        'mailbox_id' => $this->mailbox->id,
-                        'message_id' => $msgRef->getId(),
-                        'error' => $e->getMessage(),
-                    ]);
+                $messageId = trim((string) $msgRef->getId());
+
+                if ($messageId !== '') {
+                    yield [
+                        'provider_message_id' => 'gmail:'.$messageId,
+                        'provider_remote_id' => $messageId,
+                    ];
                 }
             }
-
-            return $messages;
         } catch (\Throwable $e) {
             Log::error('Gmail fetch error', [
                 'mailbox_id' => $this->mailbox->id,
                 'error' => $e->getMessage(),
             ]);
-
-            return [];
         }
+    }
+
+    public function fetchEmail(array $providerReference): array
+    {
+        if (! $this->service) {
+            throw new \RuntimeException('Gmail is not connected.');
+        }
+
+        $messageId = trim((string) ($providerReference['provider_remote_id'] ?? ''));
+        $expectedIdentity = trim((string) ($providerReference['provider_message_id'] ?? ''));
+
+        if ($messageId === '' || ! hash_equals('gmail:'.$messageId, $expectedIdentity)) {
+            throw new \UnexpectedValueException('Gmail provider reference is invalid.');
+        }
+
+        return $this->parseMessage($messageId);
     }
 
     private function parseMessage(string $messageId): array
@@ -101,9 +120,9 @@ class GmailConnector implements InboundEmailConnector
         $headers = $this->extractHeaders($message->getPayload()->getHeaders());
 
         $body = $this->extractBody($message->getPayload());
-        $attachments = $this->extractAttachments($message->getPayload(), $messageId);
+        $attachmentResult = $this->extractAttachments($message->getPayload(), $messageId);
 
-        return [
+        $emailData = [
             'provider_message_id' => 'gmail:'.$messageId,
             'provider_remote_id' => $messageId,
             'from_email' => $this->parseEmailAddress($headers['From'] ?? ''),
@@ -116,8 +135,14 @@ class GmailConnector implements InboundEmailConnector
             'in_reply_to' => $headers['In-Reply-To'] ?? null,
             'references' => $headers['References'] ?? null,
             'date' => $headers['Date'] ?? null,
-            'attachments' => $attachments,
+            'attachments' => $attachmentResult['attachments'],
         ];
+
+        if ($attachmentResult['rejection'] !== null) {
+            $emailData['attachment_rejection'] = $attachmentResult['rejection'];
+        }
+
+        return $emailData;
     }
 
     /**
@@ -183,38 +208,84 @@ class GmailConnector implements InboundEmailConnector
         return $body;
     }
 
-    private function extractAttachments($payload, string $messageId): array
+    /**
+     * @return array{attachments: list<array{filename: string, content: string, mime_type: string, size: int}>, rejection: ?array{reason_code: string, reported_count: int, reported_bytes: int}}
+     */
+    private function extractAttachments(MessagePart $payload, string $messageId): array
     {
-        $attachments = [];
+        $descriptors = [];
+        $this->collectAttachmentDescriptors($payload, $descriptors);
 
-        if ($payload->getParts()) {
-            foreach ($payload->getParts() as $part) {
-                if ($part->getFilename() && $part->getBody()->getAttachmentId()) {
-                    $attachmentData = $this->service->users_messages_attachments->get(
-                        'me',
-                        $messageId,
-                        $part->getBody()->getAttachmentId()
-                    );
-
-                    $attachments[] = [
-                        'filename' => $part->getFilename(),
-                        'content' => $this->decodeBase64Url($attachmentData->getData()),
-                        'mime_type' => $part->getMimeType(),
-                        'size' => $part->getBody()->getSize(),
-                    ];
-                }
-
-                $nested = $this->extractAttachments($part, $messageId);
-                $attachments = array_merge($attachments, $nested);
-            }
+        try {
+            $mailbox = isset($this->mailbox) ? $this->mailbox : null;
+            $this->attachmentPolicy->assertMetadata($descriptors, $mailbox);
+        } catch (AttachmentRejected $exception) {
+            return [
+                'attachments' => [],
+                'rejection' => $this->attachmentPolicy->rejection($exception, $descriptors),
+            ];
         }
 
-        return $attachments;
+        $attachments = [];
+        $actualBytes = 0;
+
+        try {
+            foreach ($descriptors as $descriptor) {
+                $attachmentData = $this->service->users_messages_attachments->get(
+                    'me',
+                    $messageId,
+                    $descriptor['attachment_id'],
+                );
+                $content = $this->decodeBase64Url((string) $attachmentData->getData());
+                $this->attachmentPolicy->assertContent($content, $actualBytes);
+
+                $attachments[] = [
+                    'filename' => $descriptor['filename'],
+                    'content' => $content,
+                    'mime_type' => $descriptor['mime_type'],
+                    'size' => strlen($content),
+                ];
+            }
+        } catch (AttachmentRejected $exception) {
+            return [
+                'attachments' => [],
+                'rejection' => $this->attachmentPolicy->rejection($exception, $descriptors),
+            ];
+        }
+
+        return ['attachments' => $attachments, 'rejection' => null];
+    }
+
+    /** @param list<array{attachment_id: string, filename: string, mime_type: string, size: mixed}> $descriptors */
+    private function collectAttachmentDescriptors(MessagePart $payload, array &$descriptors): void
+    {
+        foreach ($payload->getParts() ?: [] as $part) {
+            $attachmentId = trim((string) $part->getBody()->getAttachmentId());
+            $filename = (string) $part->getFilename();
+
+            if ($filename !== '' && $attachmentId !== '') {
+                $descriptors[] = [
+                    'attachment_id' => $attachmentId,
+                    'filename' => $filename,
+                    'mime_type' => (string) $part->getMimeType(),
+                    'size' => $part->getBody()->getSize(),
+                ];
+            }
+
+            $this->collectAttachmentDescriptors($part, $descriptors);
+        }
     }
 
     private function decodeBase64Url(string $data): string
     {
-        return base64_decode(strtr($data, '-_', '+/'));
+        $base64 = strtr($data, '-_', '+/');
+        $decoded = base64_decode($base64.str_repeat('=', (4 - strlen($base64) % 4) % 4), true);
+
+        if ($decoded === false) {
+            throw new AttachmentRejected('invalid_content', 'An attachment could not be decoded safely.');
+        }
+
+        return $decoded;
     }
 
     private function parseEmailAddress(string $from): string

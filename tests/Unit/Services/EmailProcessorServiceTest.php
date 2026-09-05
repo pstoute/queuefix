@@ -1,11 +1,14 @@
 <?php
 
+use App\Enums\AttachmentScanStatus;
 use App\Enums\TicketStatus;
+use App\Models\Attachment;
 use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Services\Attachments\AttachmentService;
 use App\Services\Email\EmailProcessorService;
 use App\Services\TicketService;
 
@@ -13,7 +16,7 @@ beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->ticketService = app(TicketService::class);
-    $this->emailProcessor = new class($this->ticketService) extends EmailProcessorService
+    $this->emailProcessor = new class($this->ticketService, app(AttachmentService::class)) extends EmailProcessorService
     {
         private int $providerMessageSequence = 0;
 
@@ -353,13 +356,13 @@ test('attachment processing creates attachment records', function () {
         'attachments' => [
             [
                 'filename' => 'document.pdf',
-                'content' => 'fake-pdf-content',
+                'content' => "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF",
                 'mime_type' => 'application/pdf',
             ],
             [
-                'filename' => 'image.png',
-                'content' => 'fake-image-content',
-                'mime_type' => 'image/png',
+                'filename' => 'notes.txt',
+                'content' => 'plain text attachment',
+                'mime_type' => 'text/plain',
             ],
         ],
     ];
@@ -377,12 +380,12 @@ test('attachment processing creates attachment records', function () {
 
     $this->assertDatabaseHas('attachments', [
         'message_id' => $message->id,
-        'filename' => 'image.png',
-        'mime_type' => 'image/png',
+        'filename' => 'notes.txt',
+        'mime_type' => 'text/plain',
     ]);
 });
 
-test('attachment without filename uses default name', function () {
+test('invalid inbound attachment is terminally rejected while preserving the ticket body', function () {
     $mailbox = Mailbox::factory()->create();
 
     $emailData = [
@@ -398,12 +401,12 @@ test('attachment without filename uses default name', function () {
     ];
 
     $ticket = $this->emailProcessor->processInboundEmail($emailData, $mailbox);
-    $message = $ticket->messages()->first();
+    $attachment = Attachment::query()->sole();
 
-    $this->assertDatabaseHas('attachments', [
-        'message_id' => $message->id,
-        'filename' => 'unnamed',
-    ]);
+    expect($ticket->subject)->toBe('Test')
+        ->and($attachment->scan_status)->toBe(AttachmentScanStatus::Rejected)
+        ->and($attachment->path)->toBeNull()
+        ->and($attachment->getRawOriginal('rejection_reason'))->toBe('unsafe_filename');
 });
 
 test('email without subject uses default subject', function () {
