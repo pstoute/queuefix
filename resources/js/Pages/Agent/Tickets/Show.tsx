@@ -1,5 +1,5 @@
 import { Head, router, useForm } from '@inertiajs/react';
-import { PageProps, Ticket, User, TicketStatus, TicketPriority } from '@/types';
+import { Message, PageProps, Ticket, User, TicketStatus, TicketPriority } from '@/types';
 import AgentLayout from '@/Layouts/AgentLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Button } from '@/Components/ui/button';
@@ -49,6 +49,7 @@ interface TicketShowProps extends PageProps {
   agents: User[];
   statuses: TicketStatus[];
   priorities: { value: TicketPriority; label: string }[];
+  mentionableUsers: Array<Pick<User, 'id' | 'name' | 'handle' | 'avatar'>>;
 }
 
 const priorityConfig = {
@@ -58,9 +59,11 @@ const priorityConfig = {
   urgent: { label: 'Urgent', variant: 'destructive' as const },
 };
 
-export default function TicketShow({ ticket, agents, statuses, priorities }: TicketShowProps) {
+export default function TicketShow({ ticket, agents, statuses, priorities, mentionableUsers, auth }: TicketShowProps) {
   const [replyType, setReplyType] = useState<'reply' | 'internal_note'>('reply');
   const [newTag, setNewTag] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingBody, setEditingBody] = useState('');
 
   const { data, setData, post, processing, reset } = useForm({
     body: '',
@@ -111,6 +114,53 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
 
   const handleRemoveTag = (tagId: string) => {
     router.delete(`/agent/tickets/${ticket.id}/tags/${tagId}`, { preserveScroll: true });
+  };
+
+  const mentionSuggestions = (body: string) => {
+    const match = body.match(/(?:^|\s)@([A-Za-z0-9_-]*)$/);
+    if (!match) return [];
+
+    const query = match[1].toLowerCase();
+    return mentionableUsers
+      .filter((user) =>
+        user.handle.startsWith(query) || user.name.toLowerCase().includes(query)
+      )
+      .slice(0, 5);
+  };
+
+  const insertMention = (body: string, user: Pick<User, 'handle'>) =>
+    body.replace(/@[A-Za-z0-9_-]*$/, `@${user.handle} `);
+
+  const renderInternalNote = (message: Message) => {
+    const handles = new Set(
+      message.mentions
+        ?.map((mention) => mention.mentioned_user?.handle.toLowerCase())
+        .filter((handle): handle is string => Boolean(handle)) || []
+    );
+
+    return (message.body_text || '').split(/(@[A-Za-z0-9][A-Za-z0-9_-]{0,47})/gi).map((part, index) => {
+      const handle = part.startsWith('@') ? part.slice(1).toLowerCase() : null;
+
+      return handle && handles.has(handle) ? (
+        <span key={`${message.id}-mention-${index}`} className="rounded bg-primary/10 px-1 font-medium text-primary">
+          {part}
+        </span>
+      ) : part;
+    });
+  };
+
+  const saveInternalNote = (messageId: string) => {
+    router.patch(
+      `/agent/tickets/${ticket.id}/messages/${messageId}/internal-note`,
+      { body: editingBody },
+      {
+        preserveScroll: true,
+        onSuccess: () => {
+          setEditingMessageId(null);
+          setEditingBody('');
+        },
+      }
+    );
   };
 
   const getInitials = (name: string) => {
@@ -223,6 +273,7 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                         return (
                           <div
                             key={message.id}
+                            id={`message-${message.id}`}
                             className={cn(
                               'rounded-lg p-4',
                               isInternal
@@ -250,6 +301,22 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                                       Internal Note
                                     </Badge>
                                   )}
+                                  {isInternal
+                                    && message.sender_type === 'App\\Models\\User'
+                                    && message.sender_id === auth.user.id && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="ml-auto h-7"
+                                      onClick={() => {
+                                        setEditingMessageId(message.id);
+                                        setEditingBody(message.body_text || '');
+                                      }}
+                                    >
+                                      Edit
+                                    </Button>
+                                  )}
                                 </div>
                                 <p className="text-xs text-muted-foreground">
                                   {formatDateTime(message.created_at)}
@@ -258,12 +325,64 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                             </div>
 
                             {/* Message body */}
-                            <div
-                              className="prose prose-sm max-w-none dark:prose-invert"
-                              dangerouslySetInnerHTML={{
-                                __html: message.body_html || message.body_text || '',
-                              }}
-                            />
+                            {isInternal && editingMessageId === message.id ? (
+                              <div className="space-y-2">
+                                <Textarea
+                                  value={editingBody}
+                                  onChange={(event) => setEditingBody(event.target.value)}
+                                  rows={4}
+                                  className="bg-background"
+                                />
+                                {mentionSuggestions(editingBody).length > 0 && (
+                                  <div className="rounded-md border bg-popover p-1" role="listbox" aria-label="Mention staff">
+                                    {mentionSuggestions(editingBody).map((user) => (
+                                      <button
+                                        key={user.id}
+                                        type="button"
+                                        role="option"
+                                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                                        onClick={() => setEditingBody(insertMention(editingBody, user))}
+                                      >
+                                        <span className="font-medium">@{user.handle}</span>
+                                        <span className="text-muted-foreground">{user.name}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingMessageId(null);
+                                      setEditingBody('');
+                                    }}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={!editingBody.trim()}
+                                    onClick={() => saveInternalNote(message.id)}
+                                  >
+                                    Save note
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : isInternal ? (
+                              <div className="whitespace-pre-wrap break-words text-sm">
+                                {renderInternalNote(message)}
+                              </div>
+                            ) : (
+                              <div
+                                className="prose prose-sm max-w-none dark:prose-invert"
+                                dangerouslySetInnerHTML={{
+                                  __html: message.body_html || message.body_text || '',
+                                }}
+                              />
+                            )}
 
                             {/* Attachments */}
                             {message.attachments && message.attachments.length > 0 && (
@@ -336,6 +455,23 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                           'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800'
                       )}
                     />
+
+                    {replyType === 'internal_note' && mentionSuggestions(data.body).length > 0 && (
+                      <div className="rounded-md border bg-popover p-1" role="listbox" aria-label="Mention staff">
+                        {mentionSuggestions(data.body).map((user) => (
+                          <button
+                            key={user.id}
+                            type="button"
+                            role="option"
+                            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                            onClick={() => setData('body', insertMention(data.body, user))}
+                          >
+                            <span className="font-medium">@{user.handle}</span>
+                            <span className="text-muted-foreground">{user.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">

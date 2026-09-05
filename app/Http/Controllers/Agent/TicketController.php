@@ -13,6 +13,7 @@ use App\Models\Ticket;
 use App\Models\TicketStatus;
 use App\Models\User;
 use App\Services\SlaService;
+use App\Services\TicketMentionService;
 use App\Services\TicketReadStateService;
 use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
@@ -28,6 +29,7 @@ class TicketController extends Controller
         private TicketService $ticketService,
         private SlaService $slaService,
         private TicketReadStateService $readStateService,
+        private TicketMentionService $mentionService,
     ) {}
 
     public function index(Request $request): Response
@@ -116,7 +118,13 @@ class TicketController extends Controller
                 ->orderBy('name')
                 ->select('users.id', 'name', 'email', 'avatar'),
             'messages' => function ($q) {
-                $q->with(['sender', 'attachments'])
+                $q->with([
+                    'sender',
+                    'attachments',
+                    'mentions' => fn ($mentionQuery) => $mentionQuery
+                        ->whereNull('removed_at')
+                        ->with('mentionedUser:id,handle'),
+                ])
                     ->orderBy('created_at')
                     ->orderBy('id');
             },
@@ -138,6 +146,13 @@ class TicketController extends Controller
             'agents' => User::where('is_active', true)->select('id', 'name', 'email', 'avatar')->get(),
             'statuses' => TicketStatus::query()->ordered()->get(),
             'priorities' => collect(TicketPriority::cases())->map(fn ($p) => ['value' => $p->value, 'label' => $p->label()]),
+            'mentionableUsers' => User::query()
+                ->where('is_active', true)
+                ->whereKeyNot($user->id)
+                ->orderBy('name')
+                ->get(['id', 'name', 'handle', 'avatar', 'is_active'])
+                ->filter(fn (User $candidate): bool => Gate::forUser($candidate)->allows('view', $ticket))
+                ->values(),
         ]);
     }
 
@@ -179,14 +194,19 @@ class TicketController extends Controller
         ]);
 
         $type = MessageType::from($validated['type'] ?? 'reply');
+        $isInternalNote = $type === MessageType::InternalNote;
 
         $message = $this->ticketService->addMessage($ticket, [
             'type' => $type,
-            'body_text' => strip_tags($validated['body']),
-            'body_html' => $validated['body'],
+            'body_text' => $isInternalNote ? $validated['body'] : strip_tags($validated['body']),
+            'body_html' => $isInternalNote ? null : $validated['body'],
             'sender_type' => User::class,
             'sender_id' => $request->user()->id,
         ], actor: $request->user());
+
+        if ($isInternalNote) {
+            $this->mentionService->syncMentions($ticket, $message, $request->user());
+        }
 
         if ($type === MessageType::Reply && $ticket->mailbox_id) {
             SendEmailReplyJob::dispatch($ticket->id, $message->id);

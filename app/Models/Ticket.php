@@ -178,4 +178,10 @@ class Ticket extends Model
     {
         return $this->hasMany(TicketReadState::class);
     }
+
+    /** @return HasMany<TicketMention, $this> */
+    public function mentions(): HasMany
+    {
+        return $this->hasMany(TicketMention::class);
+    }
 }

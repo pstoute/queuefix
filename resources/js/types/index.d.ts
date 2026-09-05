@@ -6,6 +6,7 @@ export type MailboxType = 'imap' | 'gmail' | 'microsoft';
 export interface User {
     id: string;
     name: string;
+    handle: string;
     email: string;
     role: UserRole;
     avatar?: string;
@@ -112,6 +113,18 @@ export interface Message {
     updated_at: string;
     sender?: User | Customer;
     attachments?: Attachment[];
+    mentions?: TicketMention[];
+}
+
+export interface TicketMention {
+    id: string;
+    ticket_id: string;
+    message_id: string;
+    mentioned_user_id?: string | null;
+    actor_id?: string | null;
+    notified_at?: string | null;
+    removed_at?: string | null;
+    mentioned_user?: Pick<User, 'id' | 'handle'>;
 }
 
 export interface Attachment {

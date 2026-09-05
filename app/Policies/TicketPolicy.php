@@ -10,22 +10,22 @@ class TicketPolicy
 {
     public function viewAny(User $user): bool
     {
-        return true;
+        return $user->is_active;
     }
 
     public function view(User $user, Ticket $ticket): bool
     {
-        return true;
+        return $user->is_active;
     }
 
     public function create(User $user): bool
     {
-        return true;
+        return $user->is_active;
     }
 
     public function update(User $user, Ticket $ticket): bool
     {
-        return true;
+        return $user->is_active;
     }
 
     public function watch(User $user, Ticket $ticket): bool

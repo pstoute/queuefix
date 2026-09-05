@@ -4,6 +4,7 @@ use App\Http\Controllers\Agent\CannedResponseController;
 use App\Http\Controllers\Agent\DashboardController;
 use App\Http\Controllers\Agent\TagController;
 use App\Http\Controllers\Agent\TicketController;
+use App\Http\Controllers\Agent\TicketMessageController;
 use App\Http\Controllers\Agent\TicketReadStateController;
 use App\Http\Controllers\Agent\TicketWatcherController;
 use App\Http\Controllers\Auth\MagicLinkController;
@@ -65,6 +66,8 @@ Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(
     Route::post('tickets/{ticket}/watch', [TicketWatcherController::class, 'store'])->name('tickets.watch.store');
     Route::delete('tickets/{ticket}/watch', [TicketWatcherController::class, 'destroy'])->name('tickets.watch.destroy');
     Route::patch('tickets/{ticket}/read', TicketReadStateController::class)->name('tickets.read');
+    Route::get('tickets/{ticket}/messages/{message}', [TicketMessageController::class, 'show'])->name('tickets.messages.show');
+    Route::patch('tickets/{ticket}/messages/{message}/internal-note', [TicketMessageController::class, 'update'])->name('tickets.messages.internal-note.update');
 
     // Tags
     Route::get('tags', [TagController::class, 'index'])->name('tags.index');
