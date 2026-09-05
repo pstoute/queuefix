@@ -39,7 +39,7 @@ export default function Login({
     };
 
     const handleSocialLogin = (provider: 'google' | 'microsoft') => {
-        window.location.href = route('auth.social', provider);
+        window.location.href = route('auth.social.redirect', provider);
     };
 
     return (

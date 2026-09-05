@@ -2,6 +2,9 @@
 
 use App\Models\User;
 use Illuminate\Support\Facades\URL;
+use Laravel\Socialite\Contracts\Provider;
+use Laravel\Socialite\Contracts\User as SocialiteUser;
+use Laravel\Socialite\Facades\Socialite;
 
 use function Pest\Laravel\get;
 use function Pest\Laravel\post;
@@ -64,6 +67,59 @@ test('oauth redirect for microsoft', function () {
     get(route('auth.social.redirect', ['provider' => 'microsoft']))
         ->assertRedirect()
         ->assertSessionHasNoErrors();
+});
+
+test('oauth callback rejects an unknown identity', function () {
+    $socialUser = Mockery::mock(SocialiteUser::class);
+    $socialUser->shouldReceive('getEmail')->andReturn('intruder@example.com');
+    $socialUser->shouldReceive('getName')->andReturn('Intruder');
+    $socialUser->shouldReceive('getAvatar')->andReturn(null);
+
+    $provider = Mockery::mock(Provider::class);
+    $provider->shouldReceive('user')->once()->andReturn($socialUser);
+
+    Socialite::shouldReceive('driver')
+        ->once()
+        ->with('google')
+        ->andReturn($provider);
+
+    get(route('auth.social.callback', ['provider' => 'google']))
+        ->assertRedirect(route('login'))
+        ->assertSessionHas('error');
+
+    $this->assertGuest();
+    $this->assertDatabaseMissing('users', [
+        'email' => 'intruder@example.com',
+    ]);
+});
+
+test('oauth callback authenticates an active provisioned user', function () {
+    $user = User::factory()->create([
+        'email' => 'agent@example.com',
+        'avatar' => null,
+    ]);
+
+    $socialUser = Mockery::mock(SocialiteUser::class);
+    $socialUser->shouldReceive('getEmail')->andReturn('agent@example.com');
+    $socialUser->shouldReceive('getAvatar')->andReturn('https://example.com/avatar.png');
+
+    $provider = Mockery::mock(Provider::class);
+    $provider->shouldReceive('user')->once()->andReturn($socialUser);
+
+    Socialite::shouldReceive('driver')
+        ->once()
+        ->with('google')
+        ->andReturn($provider);
+
+    get(route('auth.social.callback', ['provider' => 'google']))
+        ->assertRedirect(route('agent.tickets.index'));
+
+    $this->assertAuthenticatedAs($user);
+    $this->assertDatabaseHas('users', [
+        'id' => $user->id,
+        'email' => 'agent@example.com',
+        'avatar' => 'https://example.com/avatar.png',
+    ]);
 });
 
 test('magic link form renders', function () {
