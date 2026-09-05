@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Services\SlaService;
 use App\Services\TicketCcService;
 use App\Services\TicketMentionService;
+use App\Services\TicketMergeService;
 use App\Services\TicketReadStateService;
 use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
@@ -33,6 +34,7 @@ class TicketController extends Controller
         private TicketReadStateService $readStateService,
         private TicketMentionService $mentionService,
         private TicketCcService $ccService,
+        private TicketMergeService $mergeService,
     ) {}
 
     public function index(Request $request): Response
@@ -40,6 +42,7 @@ class TicketController extends Controller
         /** @var User $user */
         $user = $request->user();
         $query = Ticket::with(['customer', 'assignee', 'department', 'tags', 'status', 'slaTimer.slaPolicy'])
+            ->whereNull('merged_into_ticket_id')
             ->orderBy('last_activity_at', 'desc');
         $this->readStateService->addUnreadCount($query, $user);
 
@@ -93,20 +96,31 @@ class TicketController extends Controller
             'agents' => User::where('is_active', true)->select('id', 'name', 'email', 'avatar')->get(),
             'departments' => Department::orderBy('name')->get(['id', 'name']),
             'statuses' => TicketStatus::query()->ordered()->get(),
-            'statusCounts' => TicketStatus::query()->ordered()->withCount('tickets')->get(),
+            'statusCounts' => TicketStatus::query()->ordered()->withCount([
+                'tickets' => fn ($tickets) => $tickets->whereNull('merged_into_ticket_id'),
+            ])->get(),
             'unassignedCount' => Ticket::whereNull('assigned_to')
+                ->whereNull('merged_into_ticket_id')
                 ->whereHas('status', fn ($statusQuery) => $statusQuery->where('is_closed', false))
                 ->count(),
             'unreadCount' => $this->readStateService->unreadTicketCount($user),
         ]);
     }
 
-    public function show(Request $request, Ticket $ticket): Response
+    public function show(Request $request, Ticket $ticket): Response|RedirectResponse
     {
         Gate::authorize('view', $ticket);
 
         /** @var User $user */
         $user = $request->user();
+        if ($ticket->isMerged()) {
+            $target = $ticket->canonicalTicket();
+            Gate::forUser($user)->authorize('view', $target);
+
+            return redirect()->route('agent.tickets.show', $target)
+                ->with('success', "Ticket {$ticket->ticket_number} was merged into {$target->ticket_number}.");
+        }
+
         $ticket->load([
             'customer',
             'assignee',
@@ -129,6 +143,7 @@ class TicketController extends Controller
                 $q->with([
                     'sender',
                     'attachments',
+                    'originalTicket:id,ticket_number',
                     'ccRecipients' => fn ($ccQuery) => $ccQuery->orderBy('email'),
                     'mentions' => fn ($mentionQuery) => $mentionQuery
                         ->whereNull('removed_at')
@@ -137,6 +152,8 @@ class TicketController extends Controller
                     ->orderBy('created_at')
                     ->orderBy('id');
             },
+            'mergeEvents.actor:id,name',
+            'mergeEvents.counterpartTicket:id,ticket_number',
         ]);
 
         /** @var Message|null $latestMessage */
@@ -162,6 +179,16 @@ class TicketController extends Controller
                 ->get(['id', 'name', 'handle', 'avatar', 'is_active'])
                 ->filter(fn (User $candidate): bool => Gate::forUser($candidate)->allows('view', $ticket))
                 ->values(),
+            'canMerge' => Gate::forUser($user)->allows('merge', $ticket),
+            'mergeCandidates' => Gate::forUser($user)->allows('merge', $ticket)
+                ? Ticket::query()
+                    ->whereKeyNot($ticket->id)
+                    ->where('customer_id', $ticket->customer_id)
+                    ->whereNull('merged_into_ticket_id')
+                    ->latest('last_activity_at')
+                    ->limit(100)
+                    ->get(['id', 'ticket_number', 'subject'])
+                : [],
         ]);
     }
 
@@ -245,6 +272,8 @@ class TicketController extends Controller
 
     public function updateStatus(Request $request, Ticket $ticket): RedirectResponse
     {
+        Gate::authorize('update', $ticket);
+
         $validated = $request->validate([
             'status' => [
                 'required',
@@ -261,6 +290,8 @@ class TicketController extends Controller
 
     public function updatePriority(Request $request, Ticket $ticket): RedirectResponse
     {
+        Gate::authorize('update', $ticket);
+
         $validated = $request->validate([
             'priority' => 'required|string|in:'.implode(',', array_column(TicketPriority::cases(), 'value')),
         ]);
@@ -272,6 +303,8 @@ class TicketController extends Controller
 
     public function assign(Request $request, Ticket $ticket): RedirectResponse
     {
+        Gate::authorize('update', $ticket);
+
         $validated = $request->validate([
             'assigned_to' => 'nullable|exists:users,id',
         ]);
@@ -284,17 +317,19 @@ class TicketController extends Controller
 
     public function merge(Request $request, Ticket $ticket): RedirectResponse
     {
+        Gate::authorize('merge', $ticket);
+
         $validated = $request->validate([
-            'merge_ticket_id' => ['required', 'exists:tickets,id', function ($attribute, $value, $fail) use ($ticket) {
-                if ($value === $ticket->id) {
-                    $fail('Cannot merge a ticket with itself.');
-                }
-            }],
+            'merge_ticket_id' => ['required', 'uuid', 'exists:tickets,id'],
         ]);
 
-        $secondary = Ticket::findOrFail($validated['merge_ticket_id']);
-        $this->ticketService->mergeTickets($ticket, $secondary, $request->user());
+        $source = Ticket::findOrFail($validated['merge_ticket_id']);
+        Gate::authorize('merge', $source);
+        /** @var User $actor */
+        $actor = $request->user();
+        $target = $this->mergeService->merge($source, $ticket, $actor);
 
-        return back()->with('success', "Ticket {$secondary->ticket_number} merged into this ticket.");
+        return redirect()->route('agent.tickets.show', $target)
+            ->with('success', "Ticket {$source->ticket_number} merged into this ticket.");
     }
 }

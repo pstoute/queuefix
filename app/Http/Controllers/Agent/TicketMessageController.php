@@ -18,6 +18,15 @@ class TicketMessageController extends Controller
     {
         Gate::authorize('view', $ticket);
 
+        if ($ticket->isMerged()) {
+            $target = $ticket->canonicalTicket();
+            if ($message->ticket_id === $target->id) {
+                Gate::authorize('view', $target);
+
+                return redirect()->to(route('agent.tickets.show', $target)."#message-{$message->id}");
+            }
+        }
+
         abort_unless($message->ticket_id === $ticket->id, 404);
 
         return redirect()->to(route('agent.tickets.show', $ticket)."#message-{$message->id}");

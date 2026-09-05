@@ -52,7 +52,7 @@ class EmailProcessorService
         if (! empty($emailData['in_reply_to'])) {
             $message = Message::where('message_id', $emailData['in_reply_to'])->first();
             if ($message) {
-                return $message->ticket;
+                return $message->ticket->canonicalTicket();
             }
         }
 
@@ -64,7 +64,7 @@ class EmailProcessorService
             foreach ($refs as $ref) {
                 $message = Message::where('message_id', trim($ref))->first();
                 if ($message) {
-                    return $message->ticket;
+                    return $message->ticket->canonicalTicket();
                 }
             }
         }
@@ -74,7 +74,7 @@ class EmailProcessorService
         if (preg_match('/\['.$escapedPrefix.'-(\d+)\]/', $emailData['subject'] ?? '', $matches)) {
             $ticket = Ticket::where('ticket_number', $prefix.'-'.$matches[1])->first();
             if ($ticket) {
-                return $ticket;
+                return $ticket->canonicalTicket();
             }
         }
 

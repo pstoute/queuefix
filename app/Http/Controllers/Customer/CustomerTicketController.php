@@ -27,6 +27,7 @@ class CustomerTicketController extends Controller
         $customer = $this->getCustomer($request);
 
         $query = Ticket::where('customer_id', $customer->id)
+            ->whereNull('merged_into_ticket_id')
             ->with(['assignee', 'status'])
             ->orderBy('last_activity_at', 'desc');
 
@@ -52,12 +53,20 @@ class CustomerTicketController extends Controller
         ]);
     }
 
-    public function show(Request $request, Ticket $ticket): Response
+    public function show(Request $request, Ticket $ticket): Response|RedirectResponse
     {
         $customer = $this->getCustomer($request);
 
         if ($ticket->customer_id !== $customer->id) {
             abort(403);
+        }
+
+        if ($ticket->isMerged()) {
+            $target = $ticket->canonicalTicket();
+            abort_unless($target->customer_id === $customer->id, 403);
+
+            return redirect()->route('customer.tickets.show', $target)
+                ->with('success', "Ticket {$ticket->ticket_number} was merged into {$target->ticket_number}.");
         }
 
         $ticket->load([

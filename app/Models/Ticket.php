@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 class Ticket extends Model
 {
@@ -32,6 +33,9 @@ class Ticket extends Model
         'last_activity_at',
         'resolved_at',
         'closed_at',
+        'merged_into_ticket_id',
+        'merged_at',
+        'merged_by',
     ];
 
     /**
@@ -46,6 +50,7 @@ class Ticket extends Model
             'last_activity_at' => 'datetime',
             'resolved_at' => 'datetime',
             'closed_at' => 'datetime',
+            'merged_at' => 'datetime',
         ];
     }
 
@@ -203,5 +208,51 @@ class Ticket extends Model
     public function rating(): HasOne
     {
         return $this->hasOne(TicketRating::class);
+    }
+
+    /** @return BelongsTo<Ticket, $this> */
+    public function mergedIntoTicket(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'merged_into_ticket_id');
+    }
+
+    /** @return HasMany<Ticket, $this> */
+    public function mergedSources(): HasMany
+    {
+        return $this->hasMany(self::class, 'merged_into_ticket_id');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function mergedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'merged_by');
+    }
+
+    /** @return HasMany<TicketMergeEvent, $this> */
+    public function mergeEvents(): HasMany
+    {
+        return $this->hasMany(TicketMergeEvent::class)->orderBy('occurred_at')->orderBy('id');
+    }
+
+    public function isMerged(): bool
+    {
+        return $this->merged_into_ticket_id !== null;
+    }
+
+    public function canonicalTicket(): self
+    {
+        $ticket = $this;
+        $visited = [];
+
+        while ($ticket->isMerged()) {
+            if (isset($visited[$ticket->id])) {
+                throw new LogicException('Ticket merge history contains a cycle.');
+            }
+
+            $visited[$ticket->id] = true;
+            $ticket = $ticket->mergedIntoTicket()->firstOrFail();
+        }
+
+        return $ticket;
     }
 }

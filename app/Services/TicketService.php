@@ -206,21 +206,6 @@ class TicketService
         return $updatedTicket;
     }
 
-    public function mergeTickets(Ticket $primary, Ticket $secondary, ?User $actor = null): Ticket
-    {
-        return DB::transaction(function () use ($primary, $secondary, $actor) {
-            $secondary->messages()->update(['ticket_id' => $primary->id]);
-
-            $secondaryTags = $secondary->tags()->pluck('tags.id')->toArray();
-            $primary->tags()->syncWithoutDetaching($secondaryTags);
-
-            $this->updateStatus($secondary, TicketStatus::systemClosedStatus(), $actor);
-            $primary->update(['last_activity_at' => now()]);
-
-            return $primary->fresh();
-        });
-    }
-
     public function getNextTicketNumber(): string
     {
         $prefix = Setting::get('ticket_prefix', 'QF');

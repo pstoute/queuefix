@@ -346,8 +346,9 @@ test('unassigning a ticket', function () {
 test('merging tickets moves messages', function () {
     actingAs($this->user);
 
-    $primaryTicket = Ticket::factory()->create();
-    $secondaryTicket = Ticket::factory()->create();
+    $customer = Customer::factory()->create();
+    $primaryTicket = Ticket::factory()->create(['customer_id' => $customer->id]);
+    $secondaryTicket = Ticket::factory()->create(['customer_id' => $customer->id]);
 
     $message1 = \App\Models\Message::factory()->create(['ticket_id' => $secondaryTicket->id]);
     $message2 = \App\Models\Message::factory()->create(['ticket_id' => $secondaryTicket->id]);
@@ -361,11 +362,13 @@ test('merging tickets moves messages', function () {
     $this->assertDatabaseHas('messages', [
         'id' => $message1->id,
         'ticket_id' => $primaryTicket->id,
+        'original_ticket_id' => $secondaryTicket->id,
     ]);
 
     $this->assertDatabaseHas('messages', [
         'id' => $message2->id,
         'ticket_id' => $primaryTicket->id,
+        'original_ticket_id' => $secondaryTicket->id,
     ]);
 
     $this->assertDatabaseHas('tickets', [
@@ -377,8 +380,9 @@ test('merging tickets moves messages', function () {
 test('merging tickets syncs tags', function () {
     actingAs($this->user);
 
-    $primaryTicket = Ticket::factory()->create();
-    $secondaryTicket = Ticket::factory()->create();
+    $customer = Customer::factory()->create();
+    $primaryTicket = Ticket::factory()->create(['customer_id' => $customer->id]);
+    $secondaryTicket = Ticket::factory()->create(['customer_id' => $customer->id]);
 
     $tag1 = Tag::factory()->create();
     $tag2 = Tag::factory()->create();

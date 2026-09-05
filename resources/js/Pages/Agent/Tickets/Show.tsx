@@ -1,5 +1,5 @@
 import { Head, router, useForm } from '@inertiajs/react';
-import { Message, PageProps, Ticket, User, TicketStatus, TicketPriority } from '@/types';
+import { Message, PageProps, Ticket, TicketMergeEvent, User, TicketStatus, TicketPriority } from '@/types';
 import AgentLayout from '@/Layouts/AgentLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Button } from '@/Components/ui/button';
@@ -43,6 +43,7 @@ import {
   Eye,
   EyeOff,
   Star,
+  GitMerge,
 } from 'lucide-react';
 
 interface TicketShowProps extends PageProps {
@@ -51,6 +52,8 @@ interface TicketShowProps extends PageProps {
   statuses: TicketStatus[];
   priorities: { value: TicketPriority; label: string }[];
   mentionableUsers: Array<Pick<User, 'id' | 'name' | 'handle' | 'avatar'>>;
+  canMerge: boolean;
+  mergeCandidates: Array<Pick<Ticket, 'id' | 'ticket_number' | 'subject'>>;
 }
 
 const priorityConfig = {
@@ -60,12 +63,22 @@ const priorityConfig = {
   urgent: { label: 'Urgent', variant: 'destructive' as const },
 };
 
-export default function TicketShow({ ticket, agents, statuses, priorities, mentionableUsers, auth }: TicketShowProps) {
+export default function TicketShow({
+  ticket,
+  agents,
+  statuses,
+  priorities,
+  mentionableUsers,
+  canMerge,
+  mergeCandidates,
+  auth,
+}: TicketShowProps) {
   const [replyType, setReplyType] = useState<'reply' | 'internal_note'>('reply');
   const [newTag, setNewTag] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingBody, setEditingBody] = useState('');
   const [ccInput, setCcInput] = useState('');
+  const [mergeTicketId, setMergeTicketId] = useState('');
 
   const { data, setData, post, processing, reset } = useForm({
     body: '',
@@ -118,6 +131,20 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
 
   const handleRemoveTag = (tagId: string) => {
     router.delete(`/agent/tickets/${ticket.id}/tags/${tagId}`, { preserveScroll: true });
+  };
+
+  const handleMerge = () => {
+    const source = mergeCandidates.find((candidate) => candidate.id === mergeTicketId);
+    if (!source) return;
+
+    if (!window.confirm(`Merge #${source.ticket_number} into #${ticket.ticket_number}? This cannot be undone.`)) {
+      return;
+    }
+
+    router.post(`/agent/tickets/${ticket.id}/merge`, { merge_ticket_id: source.id }, {
+      preserveScroll: true,
+      onSuccess: () => setMergeTicketId(''),
+    });
   };
 
   const addCcRecipient = () => {
@@ -229,6 +256,20 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
   const activePauseSeconds = ticket.sla_timer?.paused_at
     ? Math.max(0, Math.floor((Date.now() - new Date(ticket.sla_timer.paused_at).getTime()) / 1000))
     : 0;
+  const timelineItems = [
+    ...(ticket.messages || []).map((message) => ({
+      kind: 'message' as const,
+      id: message.id,
+      occurredAt: message.created_at,
+      message,
+    })),
+    ...(ticket.merge_events || []).map((event: TicketMergeEvent) => ({
+      kind: 'merge' as const,
+      id: event.id,
+      occurredAt: event.occurred_at,
+      event,
+    })),
+  ].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id));
 
   return (
     <AgentLayout>
@@ -288,7 +329,31 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
                   {/* Messages */}
                   <ScrollArea className="flex-1 p-6">
                     <div className="space-y-6">
-                      {ticket.messages?.map((message) => {
+                      {timelineItems.map((entry) => {
+                        if (entry.kind === 'merge') {
+                          const event = entry.event;
+                          const counterpart = event.counterpart_ticket?.ticket_number || 'unknown';
+                          const description = event.event_type === 'target_received'
+                            ? `Ticket #${counterpart} was merged into this ticket.`
+                            : `This ticket was merged into #${counterpart}.`;
+
+                          return (
+                            <div
+                              key={event.id}
+                              className="flex items-start gap-3 rounded-lg border border-dashed bg-muted/40 p-4"
+                            >
+                              <GitMerge className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                              <div>
+                                <p className="text-sm font-medium">{description}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {event.actor?.name || 'Former staff member'} · {formatDateTime(event.occurred_at)}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        const message = entry.message;
                         const isInternal = message.type === 'internal_note';
                         const isCustomer = message.sender_type === 'App\\Models\\Customer';
                         const sender = message.sender as User | undefined;
@@ -322,6 +387,11 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
                                   {isInternal && (
                                     <Badge variant="outline" className="text-xs">
                                       Internal Note
+                                    </Badge>
+                                  )}
+                                  {message.original_ticket && message.original_ticket.id !== ticket.id && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      Originally #{message.original_ticket.ticket_number}
                                     </Badge>
                                   )}
                                   {isInternal
@@ -725,6 +795,50 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
                     </div>
                   </CardContent>
                 </Card>
+
+                {canMerge && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <GitMerge className="h-4 w-4" />
+                        Merge duplicate
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        Move another ticket from this customer into #{ticket.ticket_number}. Its messages keep their original ticket provenance. This cannot be undone.
+                      </p>
+                      {mergeCandidates.length > 0 ? (
+                        <>
+                          <Label htmlFor="merge-ticket" className="sr-only">Source ticket</Label>
+                          <Select value={mergeTicketId} onValueChange={setMergeTicketId}>
+                            <SelectTrigger id="merge-ticket">
+                              <SelectValue placeholder="Choose a source ticket" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {mergeCandidates.map((candidate) => (
+                                <SelectItem key={candidate.id} value={candidate.id}>
+                                  #{candidate.ticket_number} · {candidate.subject}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            className="w-full"
+                            disabled={!mergeTicketId}
+                            onClick={handleMerge}
+                          >
+                            Merge into this ticket
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No eligible tickets for this customer.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* CC recipients */}
                 <Card>
