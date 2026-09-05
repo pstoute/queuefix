@@ -2,21 +2,27 @@
 
 use App\Enums\MessageType;
 use App\Enums\TicketPriority;
-use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Tag;
+use App\Models\TicketStatus;
 use App\Models\User;
 use App\Services\SlaService;
+use App\Services\TicketNotificationService;
 use App\Services\TicketService;
 
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->slaService = Mockery::mock(SlaService::class);
-    $this->ticketService = new TicketService($this->slaService);
+    $this->notificationService = Mockery::mock(TicketNotificationService::class)->shouldIgnoreMissing();
+    $this->ticketService = new TicketService($this->slaService, $this->notificationService);
+    $this->openStatus = TicketStatus::defaultStatus();
+    $this->pendingStatus = $this->ticketStatusAt(20);
+    $this->resolvedStatus = $this->ticketStatusAt(40);
+    $this->closedStatus = $this->ticketStatusAt(50);
 });
 
 test('creating a ticket generates ticket number', function () {
@@ -31,7 +37,7 @@ test('creating a ticket generates ticket number', function () {
 
     expect($ticket->ticket_number)->toStartWith('QF-');
     expect($ticket->subject)->toBe('Test ticket');
-    expect($ticket->status)->toBe(TicketStatus::Open);
+    expect($ticket->status->is($this->openStatus))->toBeTrue();
     expect($ticket->priority)->toBe(TicketPriority::Normal);
     expect($ticket->customer_id)->toBe($customer->id);
 });
@@ -175,16 +181,16 @@ test('updating status calls SLA service', function () {
         ->once()
         ->with(
             Mockery::on(fn ($t) => $t->id === $ticket->id),
-            TicketStatus::Open,
-            TicketStatus::Pending
+            Mockery::on(fn (TicketStatus $status) => $status->is($this->openStatus)),
+            Mockery::on(fn (TicketStatus $status) => $status->is($this->pendingStatus)),
         );
 
     $this->slaService->shouldNotReceive('recordResolution');
 
-    $this->ticketService->updateStatus($ticket, TicketStatus::Pending);
+    $this->ticketService->updateStatus($ticket, $this->pendingStatus);
 
-    $ticket->refresh();
-    expect($ticket->status)->toBe(TicketStatus::Pending);
+    $ticket->refresh()->load('status');
+    expect($ticket->status->is($this->pendingStatus))->toBeTrue();
 });
 
 test('updating status to resolved records resolution', function () {
@@ -201,10 +207,12 @@ test('updating status to resolved records resolution', function () {
         ->once()
         ->with(Mockery::on(fn ($t) => $t->id === $ticket->id));
 
-    $this->ticketService->updateStatus($ticket, TicketStatus::Resolved);
+    $this->ticketService->updateStatus($ticket, $this->resolvedStatus);
 
-    $ticket->refresh();
-    expect($ticket->status)->toBe(TicketStatus::Resolved);
+    $ticket->refresh()->load('status');
+    expect($ticket->status->is($this->resolvedStatus))->toBeTrue()
+        ->and($ticket->resolved_at)->not->toBeNull()
+        ->and($ticket->closed_at)->not->toBeNull();
 });
 
 test('updating status to closed records resolution', function () {
@@ -221,10 +229,12 @@ test('updating status to closed records resolution', function () {
         ->once()
         ->with(Mockery::on(fn ($t) => $t->id === $ticket->id));
 
-    $this->ticketService->updateStatus($ticket, TicketStatus::Closed);
+    $this->ticketService->updateStatus($ticket, $this->closedStatus);
 
-    $ticket->refresh();
-    expect($ticket->status)->toBe(TicketStatus::Closed);
+    $ticket->refresh()->load('status');
+    expect($ticket->status->is($this->closedStatus))->toBeTrue()
+        ->and($ticket->resolved_at)->not->toBeNull()
+        ->and($ticket->closed_at)->not->toBeNull();
 });
 
 test('assigning ticket updates assigned_to', function () {
@@ -262,6 +272,8 @@ test('unassigning ticket sets assigned_to to null', function () {
 
 test('merging tickets moves messages from secondary to primary', function () {
     $this->slaService->shouldReceive('initializeTimer')->twice()->andReturnNull();
+    $this->slaService->shouldReceive('handleStatusChange')->once();
+    $this->slaService->shouldReceive('recordResolution')->once();
     $customer = Customer::factory()->create();
 
     $primaryTicket = $this->ticketService->createTicket([
@@ -281,11 +293,13 @@ test('merging tickets moves messages from secondary to primary', function () {
 
     expect($message1->fresh()->ticket_id)->toBe($primaryTicket->id);
     expect($message2->fresh()->ticket_id)->toBe($primaryTicket->id);
-    expect($secondaryTicket->fresh()->status)->toBe(TicketStatus::Closed);
+    expect($secondaryTicket->fresh()->status->is($this->closedStatus))->toBeTrue();
 });
 
 test('merging tickets syncs tags without duplicates', function () {
     $this->slaService->shouldReceive('initializeTimer')->twice()->andReturnNull();
+    $this->slaService->shouldReceive('handleStatusChange')->once();
+    $this->slaService->shouldReceive('recordResolution')->once();
     $customer = Customer::factory()->create();
 
     $primaryTicket = $this->ticketService->createTicket([

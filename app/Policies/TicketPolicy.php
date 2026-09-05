@@ -28,6 +28,11 @@ class TicketPolicy
         return true;
     }
 
+    public function watch(User $user, Ticket $ticket): bool
+    {
+        return $user->is_active && $this->view($user, $ticket);
+    }
+
     public function delete(User $user, Ticket $ticket): bool
     {
         return $user->role === UserRole::Admin;
