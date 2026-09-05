@@ -204,7 +204,9 @@ jobs:
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
 
       - name: Verify Docker Compose service isolation
-        run: php scripts/verify-compose-security.php
+        run: |
+          COMPOSE_EXPECTED_MAILER=smtp php scripts/verify-compose-security.php
+          MAIL_MAILER=log COMPOSE_EXPECTED_MAILER=log php scripts/verify-compose-security.php
 
       - name: Run Pint (code style)
         run: vendor/bin/pint --test

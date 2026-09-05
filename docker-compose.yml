@@ -20,7 +20,7 @@ services:
       - DB_USERNAME=queuefix
       - DB_PASSWORD=secret
       - REDIS_HOST=redis
-      - MAIL_MAILER=smtp
+      - MAIL_MAILER=${MAIL_MAILER:-smtp}
       - MAIL_HOST=mailpit
       - MAIL_PORT=1025
     depends_on:
@@ -87,8 +87,7 @@ services:
   mailpit:
     image: axllent/mailpit
     ports:
-      - "8025:8025"
-      - "1025:1025"
+      - "127.0.0.1:8025:8025"
     networks:
       - queuefix
 

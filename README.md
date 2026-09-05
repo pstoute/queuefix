@@ -38,7 +38,7 @@ docker-compose exec app php artisan migrate --seed
 docker-compose exec app sh -c "pnpm install && pnpm build"
 ```
 
-Then open http://localhost:8000.
+Then open http://localhost:8000. Mailpit's development inbox is available only from the Docker host at http://127.0.0.1:8025.
 
 **Demo login:** `admin@example.com` / `password`
 
