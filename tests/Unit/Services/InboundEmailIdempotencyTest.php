@@ -11,6 +11,7 @@ use App\Models\SlaTimer;
 use App\Models\Ticket;
 use App\Services\Attachments\AttachmentService;
 use App\Services\Email\EmailProcessorService;
+use App\Services\Email\InboundEmailNormalizer;
 use App\Services\TicketService;
 use Illuminate\Support\Facades\Storage;
 
@@ -210,7 +211,11 @@ test('a failed transaction does not poison the provider identity claim', functio
     $failingTicketService->shouldReceive('createTicket')
         ->once()
         ->andThrow(new RuntimeException('Injected ticket creation failure'));
-    $failingProcessor = new EmailProcessorService($failingTicketService, app(AttachmentService::class));
+    $failingProcessor = new EmailProcessorService(
+        $failingTicketService,
+        app(AttachmentService::class),
+        app(InboundEmailNormalizer::class),
+    );
 
     expect(fn () => $failingProcessor->processInboundEmail($email, $mailbox))
         ->toThrow(RuntimeException::class, 'Injected ticket creation failure');

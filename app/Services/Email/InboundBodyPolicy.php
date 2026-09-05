@@ -4,6 +4,8 @@ namespace App\Services\Email;
 
 final class InboundBodyPolicy
 {
+    public const MAX_STORED_BODY_BYTES = 16_777_215;
+
     public const OMITTED_TEXT = '[Inbound message body omitted because it exceeded the configured safety limit.]';
 
     /** @return array{text: ?string, html: ?string} */
@@ -69,7 +71,10 @@ final class InboundBodyPolicy
 
     public function maxBytes(): int
     {
-        return max(0, (int) config('attachments.max_body_bytes'));
+        return min(
+            self::MAX_STORED_BODY_BYTES,
+            max(0, (int) config('attachments.max_body_bytes')),
+        );
     }
 
     public function maxProviderMessageBytes(): int

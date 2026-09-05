@@ -267,3 +267,36 @@ test('processing enforces the body policy when a connector violates its contract
     expect(Message::query()->sole()->body_text)->toContain('omitted')
         ->and(InboundEmailReceipt::query()->count())->toBe(1);
 });
+
+test('terminally malformed provider metadata records one rejection and is acknowledged', function () {
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'gmail:malformed-metadata',
+        'provider_remote_id' => 'malformed-metadata',
+    ];
+    $email = [
+        ...$providerReference,
+        'from_email' => "attacker@example.com\0invalid",
+        'subject' => 'Malformed metadata',
+        'body_text' => 'This must not reach persistence.',
+        'attachments' => [],
+    ];
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->twice()->andReturnTrue();
+    $connector->shouldReceive('fetchEmail')->once()->with($providerReference)->andReturn($email);
+    $connector->shouldReceive('acknowledge')->once()->with($email)->andReturnTrue();
+    $connector->shouldReceive('acknowledge')->once()->with($providerReference)->andReturnTrue();
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->twice()->andReturn($connector);
+    $job = new ProcessInboundEmailJob($providerReference, $mailbox->id);
+
+    $job->handle(app(EmailProcessorService::class), $connectorFactory);
+    $job->handle(app(EmailProcessorService::class), $connectorFactory);
+
+    $receipt = InboundEmailReceipt::query()->sole();
+    expect($receipt->ticket_id)->toBeNull()
+        ->and($receipt->disposition)->toBe('rejected')
+        ->and($receipt->rejection_reason)->toBe('invalid_from_email')
+        ->and(Ticket::query()->count())->toBe(0)
+        ->and(Message::query()->count())->toBe(0);
+});

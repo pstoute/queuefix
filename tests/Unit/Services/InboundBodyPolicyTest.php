@@ -19,8 +19,11 @@ test('body policy terminally omits content over the aggregate byte limit', funct
         ]);
 });
 
-test('body policy saturates encoded bounds for the largest configured integer', function () {
+test('body policy clamps configured limits to the shared storage width', function () {
     config(['attachments.max_body_bytes' => PHP_INT_MAX]);
 
-    expect((new InboundBodyPolicy)->maxEncodedBytes(0))->toBe(PHP_INT_MAX);
+    $policy = new InboundBodyPolicy;
+
+    expect($policy->maxBytes())->toBe(InboundBodyPolicy::MAX_STORED_BODY_BYTES)
+        ->and($policy->maxEncodedBytes(0))->toBe(22_369_620);
 });

@@ -5,6 +5,7 @@ namespace App\Services\Email;
 use App\Enums\MessageType;
 use App\Enums\TicketStatus;
 use App\Exceptions\AttachmentRejected;
+use App\Exceptions\InboundEmailRejected;
 use App\Models\Customer;
 use App\Models\InboundEmailReceipt;
 use App\Models\Mailbox;
@@ -25,6 +26,7 @@ class EmailProcessorService
     public function __construct(
         private TicketService $ticketService,
         private AttachmentService $attachmentService,
+        private InboundEmailNormalizer $normalizer,
     ) {}
 
     public function processInboundEmail(array $emailData, Mailbox $mailbox): ?Ticket
@@ -34,6 +36,23 @@ class EmailProcessorService
 
         if ($existingReceipt) {
             return $existingReceipt->ticket;
+        }
+
+        try {
+            $emailData = $this->normalizer->normalize($emailData);
+        } catch (InboundEmailRejected $exception) {
+            InboundEmailReceipt::firstOrCreate(
+                [
+                    'mailbox_id' => $mailbox->id,
+                    'idempotency_key' => $idempotencyKey,
+                ],
+                [
+                    'disposition' => 'rejected',
+                    'rejection_reason' => $exception->reasonCode,
+                ],
+            );
+
+            return null;
         }
 
         $storedAttachmentPaths = [];
@@ -124,15 +143,9 @@ class EmailProcessorService
         }
 
         if (! empty($emailData['references'])) {
-            $refs = is_array($emailData['references'])
-                ? $emailData['references']
-                : explode(' ', $emailData['references']);
-
-            foreach ($refs as $ref) {
-                $ticket = $this->findTicketByMessageId(trim($ref), $customer, $mailbox);
-                if ($ticket) {
-                    return $ticket;
-                }
+            $ticket = $this->findTicketByMessageIds($emailData['references'], $customer, $mailbox);
+            if ($ticket) {
+                return $ticket;
             }
         }
 
@@ -153,9 +166,15 @@ class EmailProcessorService
 
     private function findTicketByMessageId(string $messageId, Customer $customer, Mailbox $mailbox): ?Ticket
     {
+        return $this->findTicketByMessageIds([$messageId], $customer, $mailbox);
+    }
+
+    /** @param list<string> $messageIds */
+    private function findTicketByMessageIds(array $messageIds, Customer $customer, Mailbox $mailbox): ?Ticket
+    {
         return Ticket::where('customer_id', $customer->id)
             ->where('mailbox_id', $mailbox->id)
-            ->whereHas('messages', fn ($query) => $query->where('message_id', $messageId))
+            ->whereHas('messages', fn ($query) => $query->whereIn('message_id', $messageIds))
             ->first();
     }
 
