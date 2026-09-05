@@ -1,17 +1,20 @@
 <?php
 
 use App\Enums\TicketPriority;
-use App\Enums\TicketStatus;
 use App\Models\Setting;
 use App\Models\SlaPolicy;
 use App\Models\SlaTimer;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use App\Services\SlaService;
 
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->slaService = new SlaService;
+    $this->openStatus = TicketStatus::defaultStatus();
+    $this->pendingStatus = $this->ticketStatusAt(20);
+    $this->onHoldStatus = $this->ticketStatusAt(30);
 });
 
 test('initializing SLA timer with matching policy', function () {
@@ -156,7 +159,7 @@ test('recording resolution with paused timer excludes paused time', function () 
 });
 
 test('SLA pause on pending status', function () {
-    $ticket = Ticket::factory()->create(['status' => TicketStatus::Open]);
+    $ticket = Ticket::factory()->create(['ticket_status_id' => $this->openStatus->id]);
     $timer = SlaTimer::factory()->create([
         'ticket_id' => $ticket->id,
         'paused_at' => null,
@@ -164,14 +167,14 @@ test('SLA pause on pending status', function () {
 
     $ticket->setRelation('slaTimer', $timer);
 
-    $this->slaService->handleStatusChange($ticket, TicketStatus::Open, TicketStatus::Pending);
+    $this->slaService->handleStatusChange($ticket, $this->openStatus, $this->pendingStatus);
 
     $timer->refresh();
     expect($timer->paused_at)->not->toBeNull();
 });
 
 test('SLA pause on hold status', function () {
-    $ticket = Ticket::factory()->create(['status' => TicketStatus::Open]);
+    $ticket = Ticket::factory()->create(['ticket_status_id' => $this->openStatus->id]);
     $timer = SlaTimer::factory()->create([
         'ticket_id' => $ticket->id,
         'paused_at' => null,
@@ -179,14 +182,14 @@ test('SLA pause on hold status', function () {
 
     $ticket->setRelation('slaTimer', $timer);
 
-    $this->slaService->handleStatusChange($ticket, TicketStatus::Open, TicketStatus::OnHold);
+    $this->slaService->handleStatusChange($ticket, $this->openStatus, $this->onHoldStatus);
 
     $timer->refresh();
     expect($timer->paused_at)->not->toBeNull();
 });
 
 test('SLA resume from pending to open', function () {
-    $ticket = Ticket::factory()->create(['status' => TicketStatus::Pending]);
+    $ticket = Ticket::factory()->create(['ticket_status_id' => $this->pendingStatus->id]);
     $pausedTime = now()->subHours(2);
     $timer = SlaTimer::factory()->create([
         'ticket_id' => $ticket->id,
@@ -198,7 +201,7 @@ test('SLA resume from pending to open', function () {
 
     $ticket->setRelation('slaTimer', $timer);
 
-    $this->slaService->handleStatusChange($ticket, TicketStatus::Pending, TicketStatus::Open);
+    $this->slaService->handleStatusChange($ticket, $this->pendingStatus, $this->openStatus);
 
     $timer->refresh();
     expect($timer->paused_at)->toBeNull();
@@ -206,7 +209,7 @@ test('SLA resume from pending to open', function () {
 });
 
 test('SLA resume extends due dates by paused time', function () {
-    $ticket = Ticket::factory()->create(['status' => TicketStatus::Pending]);
+    $ticket = Ticket::factory()->create(['ticket_status_id' => $this->pendingStatus->id]);
     $pausedTime = now()->subHours(2);
     $originalFirstResponseDue = now()->addHours(4);
     $originalResolutionDue = now()->addHours(24);
@@ -223,7 +226,7 @@ test('SLA resume extends due dates by paused time', function () {
 
     $ticket->setRelation('slaTimer', $timer);
 
-    $this->slaService->handleStatusChange($ticket, TicketStatus::Pending, TicketStatus::Open);
+    $this->slaService->handleStatusChange($ticket, $this->pendingStatus, $this->openStatus);
 
     $timer->refresh();
     expect($timer->first_response_due_at->timestamp)->toBeGreaterThan($originalFirstResponseDue->timestamp);
@@ -231,7 +234,7 @@ test('SLA resume extends due dates by paused time', function () {
 });
 
 test('SLA resume does not extend due dates if already met', function () {
-    $ticket = Ticket::factory()->create(['status' => TicketStatus::Pending]);
+    $ticket = Ticket::factory()->create(['ticket_status_id' => $this->pendingStatus->id]);
     $pausedTime = now()->subHours(2);
     $originalFirstResponseDue = now()->addHours(4);
     $originalResolutionDue = now()->addHours(24);
@@ -248,7 +251,7 @@ test('SLA resume does not extend due dates if already met', function () {
 
     $ticket->setRelation('slaTimer', $timer);
 
-    $this->slaService->handleStatusChange($ticket, TicketStatus::Pending, TicketStatus::Open);
+    $this->slaService->handleStatusChange($ticket, $this->pendingStatus, $this->openStatus);
 
     $timer->refresh();
     // First response due should not change since already responded

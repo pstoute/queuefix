@@ -11,14 +11,20 @@ import {
   Clock,
   MessageSquare,
   RefreshCw,
+  Workflow,
+  ChartNoAxesCombined,
+  Siren,
 } from 'lucide-react';
 
 const settingsNav = [
   { name: 'General', href: '/settings/general', icon: Settings, pattern: /^\/settings\/general/ },
   { name: 'Updates', href: '/settings/updates', icon: RefreshCw, pattern: /^\/settings\/updates/ },
+  { name: 'Reports', href: '/settings/reports', icon: ChartNoAxesCombined, pattern: /^\/settings\/reports/ },
+  { name: 'Escalations', href: '/settings/escalations', icon: Siren, pattern: /^\/settings\/escalations/ },
   { name: 'Appearance', href: '/settings/appearance', icon: Paintbrush, pattern: /^\/settings\/appearance/ },
   { name: 'Users', href: '/settings/users', icon: Users, pattern: /^\/settings\/users/ },
   { name: 'Departments', href: '/settings/departments', icon: Building2, pattern: /^\/settings\/departments/ },
+  { name: 'Ticket Statuses', href: '/settings/statuses', icon: Workflow, pattern: /^\/settings\/statuses/ },
   { name: 'Mailboxes', href: '/settings/mailboxes', icon: Mail, pattern: /^\/settings\/mailboxes/ },
   { name: 'SLA Policies', href: '/settings/sla', icon: Clock, pattern: /^\/settings\/sla/ },
   { name: 'Canned Responses', href: '/settings/canned-responses', icon: MessageSquare, pattern: /^\/settings\/canned-responses/ },

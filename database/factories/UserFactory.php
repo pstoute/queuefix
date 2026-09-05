@@ -23,6 +23,7 @@ class UserFactory extends Factory
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
             'role' => UserRole::Agent,
+            'is_support_manager' => false,
             'is_active' => true,
         ];
     }
@@ -38,6 +39,13 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'role' => UserRole::Admin,
+        ]);
+    }
+
+    public function supportManager(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'is_support_manager' => true,
         ]);
     }
 }

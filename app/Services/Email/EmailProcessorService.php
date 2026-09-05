@@ -3,7 +3,6 @@
 namespace App\Services\Email;
 
 use App\Enums\MessageType;
-use App\Enums\TicketStatus;
 use App\Models\Attachment;
 use App\Models\Customer;
 use App\Models\Mailbox;
@@ -11,6 +10,8 @@ use App\Models\MailboxAlias;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
+use App\Services\TicketCcService;
 use App\Services\TicketService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -19,6 +20,7 @@ class EmailProcessorService
 {
     public function __construct(
         private TicketService $ticketService,
+        private TicketCcService $ccService,
     ) {}
 
     public function processInboundEmail(array $emailData, Mailbox $mailbox): Ticket
@@ -50,7 +52,7 @@ class EmailProcessorService
         if (! empty($emailData['in_reply_to'])) {
             $message = Message::where('message_id', $emailData['in_reply_to'])->first();
             if ($message) {
-                return $message->ticket;
+                return $message->ticket->canonicalTicket();
             }
         }
 
@@ -62,7 +64,7 @@ class EmailProcessorService
             foreach ($refs as $ref) {
                 $message = Message::where('message_id', trim($ref))->first();
                 if ($message) {
-                    return $message->ticket;
+                    return $message->ticket->canonicalTicket();
                 }
             }
         }
@@ -72,7 +74,7 @@ class EmailProcessorService
         if (preg_match('/\['.$escapedPrefix.'-(\d+)\]/', $emailData['subject'] ?? '', $matches)) {
             $ticket = Ticket::where('ticket_number', $prefix.'-'.$matches[1])->first();
             if ($ticket) {
-                return $ticket;
+                return $ticket->canonicalTicket();
             }
         }
 
@@ -100,6 +102,7 @@ class EmailProcessorService
             'body' => $emailData['body_html'] ?? $emailData['body_text'] ?? '',
         ], $customer, $mailbox->id, $departmentId);
 
+        /** @var Message|null $message */
         $message = $ticket->messages()->first();
 
         if ($message) {
@@ -115,6 +118,13 @@ class EmailProcessorService
             ]);
 
             $this->processAttachments($message, $emailData['attachments'] ?? []);
+            $this->ccService->recordInbound(
+                $ticket,
+                $message,
+                $emailData['cc'] ?? [],
+                $emailData['from_email'],
+                $emailData['to_email'] ?? null,
+            );
         }
 
         return $ticket;
@@ -122,8 +132,8 @@ class EmailProcessorService
 
     private function appendToTicket(Ticket $ticket, array $emailData, Customer $customer): Ticket
     {
-        if (in_array($ticket->status, [TicketStatus::Resolved, TicketStatus::Closed])) {
-            $this->ticketService->updateStatus($ticket, TicketStatus::Open);
+        if ($ticket->status()->firstOrFail()->is_closed) {
+            $this->ticketService->updateStatus($ticket, TicketStatus::defaultStatus());
         }
 
         $refs = $emailData['references'] ?? null;
@@ -143,6 +153,13 @@ class EmailProcessorService
         ]);
 
         $this->processAttachments($message, $emailData['attachments'] ?? []);
+        $this->ccService->recordInbound(
+            $ticket,
+            $message,
+            $emailData['cc'] ?? [],
+            $emailData['from_email'],
+            $emailData['to_email'] ?? null,
+        );
 
         return $ticket->fresh();
     }

@@ -66,4 +66,10 @@ class Customer extends Authenticatable
         return $this->hasMany(Message::class, 'sender_id')
             ->where('sender_type', self::class);
     }
+
+    /** @return HasMany<TicketRating, $this> */
+    public function ticketRatings(): HasMany
+    {
+        return $this->hasMany(TicketRating::class);
+    }
 }

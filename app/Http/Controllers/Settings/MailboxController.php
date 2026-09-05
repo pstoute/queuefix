@@ -6,13 +6,13 @@ use App\Enums\MailboxType;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\Mailbox;
-use App\Services\Email\GmailConnector;
-use App\Services\Email\ImapConnector;
-use App\Services\Email\MicrosoftGraphConnector;
+use App\Services\Email\MailboxConnectorFactory;
+use App\Services\MailboxFetchDispatcher;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class MailboxController extends Controller
 {
@@ -36,6 +36,25 @@ class MailboxController extends Controller
                     'polling_interval' => $mailbox->polling_interval,
                     'is_active' => $mailbox->is_active,
                     'last_checked_at' => $mailbox->last_checked_at,
+                    'last_fetch_attempted_at' => $mailbox->last_fetch_attempted_at,
+                    'last_fetch_succeeded_at' => $mailbox->last_fetch_succeeded_at,
+                    'provider_cursor' => $mailbox->provider_cursor,
+                    'consecutive_fetch_failures' => $mailbox->consecutive_fetch_failures,
+                    'last_fetch_error_category' => $mailbox->last_fetch_error_category,
+                    'last_fetch_error_code' => $mailbox->last_fetch_error_code,
+                    'last_fetch_error_message' => $mailbox->last_fetch_error_message,
+                    'next_fetch_at' => $mailbox->next_fetch_at,
+                    'last_processing_failed_at' => $mailbox->last_processing_failed_at,
+                    'last_processing_error_code' => $mailbox->last_processing_error_code,
+                    'last_processing_error_message' => $mailbox->last_processing_error_message,
+                    'health_status' => $mailbox->ingestionHealthStatus(),
+                    'queue' => [
+                        'status' => $mailbox->ingestionQueueStatus(),
+                        'queued_at' => $mailbox->fetch_queued_at,
+                        'started_at' => $mailbox->fetch_started_at,
+                        'pending_messages' => $mailbox->pending_inbound_count,
+                        'processing_failures' => $mailbox->consecutive_processing_failures,
+                    ],
                 ];
             }),
         ]);
@@ -180,19 +199,38 @@ class MailboxController extends Controller
             ->with('success', 'Mailbox deleted.');
     }
 
-    public function test(Mailbox $mailbox): RedirectResponse
+    public function test(Mailbox $mailbox, MailboxConnectorFactory $connectors): RedirectResponse
     {
-        $connector = match ($mailbox->type) {
-            MailboxType::Imap => app(ImapConnector::class),
-            MailboxType::Gmail => app(GmailConnector::class),
-            MailboxType::Microsoft => app(MicrosoftGraphConnector::class),
-        };
+        if ($mailbox->ingestionQueueStatus() !== 'idle') {
+            return back()->with('error', 'Wait for the queued mailbox fetch to finish before testing the connection.');
+        }
 
-        $result = $connector->testConnection($mailbox);
+        try {
+            $result = $connectors->resolve($mailbox)->testConnection($mailbox);
+        } catch (Throwable) {
+            $result = ['success' => false];
+        }
 
         return back()->with(
             $result['success'] ? 'success' : 'error',
-            $result['message']
+            $result['success'] ? 'Connection test succeeded.' : 'Connection test failed. Review the mailbox health state and credentials.'
         );
+    }
+
+    public function fetchNow(Mailbox $mailbox, MailboxFetchDispatcher $dispatcher): RedirectResponse
+    {
+        try {
+            $dispatched = $dispatcher->dispatch($mailbox, manual: true);
+        } catch (Throwable) {
+            return back()->with('error', 'The mailbox fetch could not be queued.');
+        }
+
+        if ($dispatched) {
+            return back()->with('success', 'Mailbox fetch queued.');
+        }
+
+        return back()->with('error', $mailbox->is_active
+            ? 'A mailbox fetch is already queued or running.'
+            : 'Activate this mailbox before fetching.');
     }
 }

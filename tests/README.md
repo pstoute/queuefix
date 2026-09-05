@@ -129,8 +129,11 @@ Unit tests verify individual components in isolation, often using mocking for de
 - Inactive policies are ignored
 - Recording first response (met vs breached)
 - Recording resolution (met vs breached)
-- SLA pause on Pending/OnHold status
-- SLA resume extends due dates by paused time
+- Per-status SLA pause configuration
+- SLA resume extends only incomplete due dates by exact paused time
+- Durable pause intervals and accumulated pause duration
+- Idempotent pausing-to-pausing and duplicate transitions
+- Existing-ticket reconciliation when pause configuration changes
 - Breach detection for first response and resolution
 - Paused timers excluded from breach detection
 - Paused time excluded from calculations
@@ -167,7 +170,7 @@ Unit tests verify individual components in isolation, often using mocking for de
   - Messages (hasMany)
   - SlaTimer (hasOne)
   - Tags (belongsToMany)
-- Enum casting (TicketStatus, TicketPriority)
+- Configurable TicketStatus relationship and TicketPriority enum casting
 - DateTime casting
 - UUID primary key
 - Fillable attributes
@@ -282,7 +285,7 @@ get(route('agent.tickets.index'))
 ```php
 $this->assertDatabaseHas('tickets', [
     'subject' => 'Test ticket',
-    'status' => TicketStatus::Open->value,
+    'ticket_status_id' => TicketStatus::defaultStatus()->id,
 ]);
 
 $this->assertDatabaseMissing('tickets', [
@@ -297,7 +300,7 @@ $this->assertDatabaseCount('tickets', 5);
 expect($ticket->ticket_number)->toStartWith('QF-');
 expect($ticket->tags)->toHaveCount(3);
 expect($timer->paused_at)->toBeNull();
-expect($ticket->status)->toBe(TicketStatus::Open);
+expect($ticket->status->is_default)->toBeTrue();
 ```
 
 ### Mocking Services

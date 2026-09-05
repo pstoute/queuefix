@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 class Ticket extends Model
 {
@@ -23,13 +24,20 @@ class Ticket extends Model
     protected $fillable = [
         'ticket_number',
         'subject',
-        'status',
+        'ticket_status_id',
+        'status_changed_at',
         'priority',
+        'priority_changed_at',
         'customer_id',
         'assigned_to',
         'mailbox_id',
         'department_id',
         'last_activity_at',
+        'resolved_at',
+        'closed_at',
+        'merged_into_ticket_id',
+        'merged_at',
+        'merged_by',
     ];
 
     /**
@@ -40,9 +48,13 @@ class Ticket extends Model
     protected function casts(): array
     {
         return [
-            'status' => \App\Enums\TicketStatus::class,
             'priority' => \App\Enums\TicketPriority::class,
+            'status_changed_at' => 'datetime',
+            'priority_changed_at' => 'datetime',
             'last_activity_at' => 'datetime',
+            'resolved_at' => 'datetime',
+            'closed_at' => 'datetime',
+            'merged_at' => 'datetime',
         ];
     }
 
@@ -59,6 +71,12 @@ class Ticket extends Model
             }
             if (empty($ticket->last_activity_at)) {
                 $ticket->last_activity_at = now();
+            }
+            if (empty($ticket->ticket_status_id)) {
+                $ticket->ticket_status_id = TicketStatus::defaultStatus()->id;
+            }
+            if (empty($ticket->status_changed_at)) {
+                $ticket->status_changed_at = now();
             }
         });
     }
@@ -99,13 +117,26 @@ class Ticket extends Model
     /**
      * Get the customer that owns the ticket.
      */
+    /** @return BelongsTo<Customer, $this> */
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
     }
 
     /**
+     * Get the configurable workflow status assigned to the ticket.
+     *
+     * @return BelongsTo<TicketStatus, $this>
+     */
+    public function status(): BelongsTo
+    {
+        return $this->belongsTo(TicketStatus::class, 'ticket_status_id');
+    }
+
+    /**
      * Get the user assigned to the ticket.
+     *
+     * @return BelongsTo<User, $this>
      */
     public function assignee(): BelongsTo
     {
@@ -115,11 +146,13 @@ class Ticket extends Model
     /**
      * Get the mailbox associated with the ticket.
      */
+    /** @return BelongsTo<Mailbox, $this> */
     public function mailbox(): BelongsTo
     {
         return $this->belongsTo(Mailbox::class);
     }
 
+    /** @return BelongsTo<Department, $this> */
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
@@ -133,9 +166,7 @@ class Ticket extends Model
         return $this->hasMany(Message::class);
     }
 
-    /**
-     * Get the SLA timer for the ticket.
-     */
+    /** @return HasOne<SlaTimer, $this> */
     public function slaTimer(): HasOne
     {
         return $this->hasOne(SlaTimer::class);
@@ -147,5 +178,103 @@ class Ticket extends Model
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(Tag::class, 'tag_ticket');
+    }
+
+    /**
+     * Get the agents who explicitly watch this ticket.
+     *
+     * @return BelongsToMany<User, $this>
+     */
+    public function watchers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'ticket_watchers')->withTimestamps();
+    }
+
+    /** @return HasMany<TicketReadState, $this> */
+    public function readStates(): HasMany
+    {
+        return $this->hasMany(TicketReadState::class);
+    }
+
+    /** @return HasMany<TicketMention, $this> */
+    public function mentions(): HasMany
+    {
+        return $this->hasMany(TicketMention::class);
+    }
+
+    /** @return HasMany<TicketCcRecipient, $this> */
+    public function ccRecipients(): HasMany
+    {
+        return $this->hasMany(TicketCcRecipient::class);
+    }
+
+    /** @return HasMany<TicketCcAudit, $this> */
+    public function ccAudits(): HasMany
+    {
+        return $this->hasMany(TicketCcAudit::class);
+    }
+
+    /** @return HasOne<TicketRating, $this> */
+    public function rating(): HasOne
+    {
+        return $this->hasOne(TicketRating::class);
+    }
+
+    /** @return BelongsTo<Ticket, $this> */
+    public function mergedIntoTicket(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'merged_into_ticket_id');
+    }
+
+    /** @return HasMany<Ticket, $this> */
+    public function mergedSources(): HasMany
+    {
+        return $this->hasMany(self::class, 'merged_into_ticket_id');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function mergedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'merged_by');
+    }
+
+    /** @return HasMany<TicketMergeEvent, $this> */
+    public function mergeEvents(): HasMany
+    {
+        return $this->hasMany(TicketMergeEvent::class)->orderBy('occurred_at')->orderBy('id');
+    }
+
+    /** @return HasMany<TicketSplitEvent, $this> */
+    public function splitEvents(): HasMany
+    {
+        return $this->hasMany(TicketSplitEvent::class)->orderBy('occurred_at')->orderBy('id');
+    }
+
+    /** @return HasMany<EscalationLog, $this> */
+    public function escalationLogs(): HasMany
+    {
+        return $this->hasMany(EscalationLog::class)->latest('created_at');
+    }
+
+    public function isMerged(): bool
+    {
+        return $this->merged_into_ticket_id !== null;
+    }
+
+    public function canonicalTicket(): self
+    {
+        $ticket = $this;
+        $visited = [];
+
+        while ($ticket->isMerged()) {
+            if (isset($visited[$ticket->id])) {
+                throw new LogicException('Ticket merge history contains a cycle.');
+            }
+
+            $visited[$ticket->id] = true;
+            $ticket = $ticket->mergedIntoTicket()->firstOrFail();
+        }
+
+        return $ticket;
     }
 }
