@@ -16,6 +16,8 @@ DOMAIN="demo.queuefix.com"
 APP_DIR="/opt/queuefix"
 REPO_URL="https://github.com/pstoute/queuefix.git"
 RESET_INTERVAL=120  # minutes
+DOCKER_NETWORK_SUBNET="172.30.255.0/28"
+DOCKER_NETWORK_GATEWAY="172.30.255.1"
 
 # --- Colors ---
 GREEN='\033[0;32m'
@@ -114,6 +116,12 @@ QUEUE_CONNECTION=database
 # Session
 SESSION_DRIVER=database
 SESSION_LIFETIME=120
+
+# Reverse proxy boundary (Caddy reaches the container through this gateway)
+QUEUEFIX_NETWORK_SUBNET=${DOCKER_NETWORK_SUBNET}
+QUEUEFIX_NETWORK_GATEWAY=${DOCKER_NETWORK_GATEWAY}
+TRUSTED_PROXY_REQUIRED=true
+TRUSTED_PROXIES=${DOCKER_NETWORK_GATEWAY}
 EOF
 
 # Merge demo env into .env (demo values override)

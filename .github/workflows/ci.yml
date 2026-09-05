@@ -221,6 +221,8 @@ jobs:
         run: |
           COMPOSE_EXPECTED_MAILER=smtp php scripts/verify-compose-security.php
           MAIL_MAILER=log COMPOSE_EXPECTED_MAILER=log php scripts/verify-compose-security.php
+          COMPOSE_ENV_FILE=.env.example php scripts/verify-compose-security.php
+          TRUSTED_PROXY_REQUIRED=false TRUSTED_PROXIES=192.0.2.10 php scripts/verify-compose-security.php
 
       - name: Run Pint (code style)
         run: vendor/bin/pint --test

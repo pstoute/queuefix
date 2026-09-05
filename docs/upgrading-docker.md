@@ -21,6 +21,17 @@ The script refuses a dirty Git working tree, verifies that the specified tag exi
 
 It never deletes a backup or runs a database restore automatically. Keep the backup until the deployment has been smoke-tested.
 
+## Docker network configuration
+
+Compose uses a fixed private bridge gateway as the only trusted HTTP proxy peer. This lets the host reverse proxy pass each client's address to authentication rate limiters without trusting forwarding headers from arbitrary peers. If `172.30.255.0/28` conflicts with another Docker network on the host, set both values in `.env` before upgrading:
+
+```dotenv
+QUEUEFIX_NETWORK_SUBNET=172.30.254.0/28
+QUEUEFIX_NETWORK_GATEWAY=172.30.254.1
+```
+
+Compose enforces `TRUSTED_PROXY_REQUIRED=true` and derives `TRUSTED_PROXIES` from `QUEUEFIX_NETWORK_GATEWAY`; generic trusted-proxy values in `.env` cannot override that topology. Outside Compose, the application refuses to start when required-proxy mode has an empty trusted-proxy allowlist.
+
 ## PostgreSQL host access
 
 The default Compose configuration does not publish PostgreSQL to the host. Application services and maintenance commands continue to reach it through the private Compose network. After updating, use `docker compose up -d postgres` rather than `docker compose restart postgres` so Docker recreates the service with the new network configuration.
