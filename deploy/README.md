@@ -51,6 +51,8 @@ ssh -i ~/.ssh/queuefix-demo-key.pem ubuntu@<STATIC_IP> 'chmod +x setup-server.sh
 
 This takes ~5 minutes. It installs Docker, Caddy, clones the repo, builds containers, runs migrations, seeds demo data, and sets up the cron.
 
+The setup script targets Ubuntu 24.04 and installs Docker Engine, Compose v2, and Caddy from Ubuntu's signed archive (`docker.io`, `docker-compose-v2`, and `caddy`). Package versions follow Ubuntu's security and stable-update streams instead of running downloaded convenience scripts as root. Validate the complete deployment before changing the provisioned Ubuntu release or package source.
+
 The generated HTTPS deployment requires Secure, HttpOnly, SameSite=Lax authentication cookies and sends a one-year HSTS policy. The HSTS policy does not include subdomains or request browser preload registration.
 
 ### 5. Verify

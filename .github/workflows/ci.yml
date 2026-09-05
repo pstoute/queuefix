@@ -194,6 +194,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify server package installation
+        run: bash tests/scripts/setup-server-security-test.sh
+
       - name: Verify updater backup handling
         run: bash tests/scripts/update-docker-backup-test.sh
 
