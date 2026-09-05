@@ -31,14 +31,18 @@ QueueFix does **one thing well: support tickets.** No bloat, no unnecessary feat
 git clone https://github.com/yourusername/queuefix.git
 cd queuefix
 cp .env.example .env
-docker-compose up -d
-docker-compose exec app composer install
-docker-compose exec app php artisan key:generate
-docker-compose exec app php artisan migrate --seed
-docker-compose exec app sh -c "pnpm install && pnpm build"
+docker compose build
+docker compose run --rm --no-deps app php artisan key:generate
+docker compose up -d
+docker compose exec app php artisan migrate --seed
+docker compose exec app pnpm build
 ```
 
 Then open http://localhost:8000.
+
+Background services may restart while the first migration is pending. They recover
+automatically after the migration completes; confirm all services are running with
+`docker compose ps`.
 
 **Demo login:** `admin@example.com` / `password`
 
