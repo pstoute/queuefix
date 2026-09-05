@@ -178,6 +178,8 @@ OAuth login is available only to active staff accounts that an administrator has
 | `DB_DATABASE` | Database name | `queuefix` |
 | `QUEUE_CONNECTION` | Queue driver | `database` |
 | `MAIL_MAILER` | Mail driver | `smtp` |
+| `RATE_LIMITER_STORE` | Shared cache store for authentication rate limits | `database` |
+| `TRUSTED_PROXIES` | Comma-separated exact proxy IPs/CIDRs; leave empty for direct access | empty |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID | — |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth secret | — |
 | `MICROSOFT_CLIENT_ID` | Microsoft OAuth client ID | — |

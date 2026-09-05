@@ -17,6 +17,8 @@ return [
 
     'default' => env('CACHE_STORE', 'database'),
 
+    'limiter' => env('RATE_LIMITER_STORE', 'database'),
+
     /*
     |--------------------------------------------------------------------------
     | Cache Stores
