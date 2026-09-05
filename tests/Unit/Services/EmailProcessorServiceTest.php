@@ -10,13 +10,16 @@ use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Attachments\AttachmentService;
 use App\Services\Email\EmailProcessorService;
+use App\Services\Email\InboundEmailNormalizer;
 use App\Services\TicketService;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->ticketService = app(TicketService::class);
-    $this->emailProcessor = new class($this->ticketService, app(AttachmentService::class)) extends EmailProcessorService
+    $this->emailProcessor = new class($this->ticketService, app(AttachmentService::class), app(InboundEmailNormalizer::class)) extends EmailProcessorService
     {
         private int $providerMessageSequence = 0;
 
@@ -436,6 +439,101 @@ test('email with only html body creates ticket', function () {
     $message = $ticket->messages()->first();
     expect($message->body_html)->toBe('<p>HTML body</p>');
 });
+
+test('html-only replies persist a canonical non-null text body', function () {
+    $mailbox = Mailbox::factory()->create();
+    $customer = Customer::factory()->create();
+    $ticket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
+    Message::factory()->create([
+        'ticket_id' => $ticket->id,
+        'message_id' => '<html-parent@example.com>',
+    ]);
+
+    $this->emailProcessor->processInboundEmail([
+        'from_email' => $customer->email,
+        'subject' => 'Re: HTML only',
+        'body_html' => '<p>HTML-only reply</p>',
+        'in_reply_to' => '<html-parent@example.com>',
+    ], $mailbox);
+
+    $reply = $ticket->messages()->where('in_reply_to', '<html-parent@example.com>')->sole();
+
+    expect($reply->body_text)->toBe('HTML-only reply')
+        ->and($reply->body_html)->toBe('<p>HTML-only reply</p>');
+});
+
+test('references use one bounded scoped lookup query', function () {
+    $mailbox = Mailbox::factory()->create();
+    $customer = Customer::factory()->create();
+    $ticket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
+    Message::factory()->create([
+        'ticket_id' => $ticket->id,
+        'message_id' => '<known-reference@example.com>',
+    ]);
+
+    $references = array_map(
+        fn (int $index): string => "<unrelated-{$index}@example.com>",
+        range(1, 99),
+    );
+    $references[] = '<known-reference@example.com>';
+    $lookupQueries = 0;
+
+    DB::listen(function (QueryExecuted $query) use (&$lookupQueries): void {
+        $sql = strtolower($query->sql);
+        if (str_starts_with(ltrim($sql), 'select') && str_contains($sql, 'messages') && str_contains($sql, 'message_id')) {
+            $lookupQueries++;
+        }
+    });
+
+    $result = $this->emailProcessor->processInboundEmail([
+        'from_email' => $customer->email,
+        'subject' => 'Re: bounded references',
+        'body_text' => 'A legitimate threaded reply',
+        'references' => $references,
+    ], $mailbox);
+
+    expect($result?->is($ticket))->toBeTrue()
+        ->and($lookupQueries)->toBe(1);
+});
+
+test('exact storage-width metadata remains accepted', function () {
+    $mailbox = Mailbox::factory()->create();
+    $subject = str_repeat('s', 255);
+
+    $ticket = $this->emailProcessor->processInboundEmail([
+        'from_email' => 'boundary@example.com',
+        'from_name' => str_repeat('n', 255),
+        'subject' => $subject,
+        'body_text' => 'Boundary control',
+        'message_id' => '<'.str_repeat('m', 241).'@example.com>',
+    ], $mailbox);
+
+    expect($ticket?->subject)->toBe($subject)
+        ->and($ticket?->messages()->sole()->body_text)->toBe('Boundary control');
+});
+
+test('supported database schemas persist bodies across the MySQL TEXT boundary', function (int $bytes) {
+    config(['attachments.max_body_bytes' => $bytes]);
+    $mailbox = Mailbox::factory()->create();
+    $body = str_repeat('b', $bytes);
+
+    $ticket = $this->emailProcessor->processInboundEmail([
+        'from_email' => 'body-boundary@example.com',
+        'subject' => 'Body boundary',
+        'body_text' => $body,
+    ], $mailbox);
+
+    expect($ticket?->messages()->sole()->body_text)->toBe($body);
+})->with([
+    'legacy TEXT maximum' => 65_535,
+    'one byte beyond legacy TEXT' => 65_536,
+]);
 
 test('build outbound headers includes ticket number in subject', function () {
     $ticket = Ticket::factory()->create([

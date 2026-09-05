@@ -17,6 +17,8 @@ class InboundEmailReceipt extends Model
         'mailbox_id',
         'idempotency_key',
         'ticket_id',
+        'disposition',
+        'rejection_reason',
     ];
 
     /**
