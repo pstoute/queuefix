@@ -5,9 +5,11 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 
 class User extends Authenticatable
 {
@@ -21,9 +23,11 @@ class User extends Authenticatable
      */
     protected $fillable = [
         'name',
+        'handle',
         'email',
         'password',
         'role',
+        'is_support_manager',
         'avatar',
         'is_active',
     ];
@@ -49,7 +53,50 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'is_support_manager' => 'boolean',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (User $user): void {
+            $user->handle = $user->handle
+                ? static::normalizeHandle($user->handle)
+                : static::generateUniqueHandle($user->name);
+        });
+
+        static::updating(function (User $user): void {
+            if ($user->isDirty('handle')) {
+                $user->handle = static::normalizeHandle($user->handle);
+            }
+        });
+    }
+
+    public static function normalizeHandle(string $value): string
+    {
+        $handle = Str::of($value)
+            ->ascii()
+            ->lower()
+            ->replaceMatches('/[^a-z0-9_-]+/', '-')
+            ->trim('-_')
+            ->limit(48, '')
+            ->toString();
+
+        return $handle !== '' ? $handle : 'user';
+    }
+
+    protected static function generateUniqueHandle(string $name): string
+    {
+        $base = Str::limit(static::normalizeHandle($name), 43, '');
+        $candidate = $base;
+        $suffix = 2;
+
+        while (static::query()->where('handle', $candidate)->exists()) {
+            $candidate = Str::limit($base, 43, '').'-'.$suffix;
+            $suffix++;
+        }
+
+        return $candidate;
     }
 
     /**
@@ -75,5 +122,27 @@ class User extends Authenticatable
     public function cannedResponses(): HasMany
     {
         return $this->hasMany(CannedResponse::class, 'created_by');
+    }
+
+    /**
+     * Get the tickets this agent explicitly watches.
+     *
+     * @return BelongsToMany<Ticket, $this>
+     */
+    public function watchedTickets(): BelongsToMany
+    {
+        return $this->belongsToMany(Ticket::class, 'ticket_watchers')->withTimestamps();
+    }
+
+    /** @return HasMany<TicketReadState, $this> */
+    public function ticketReadStates(): HasMany
+    {
+        return $this->hasMany(TicketReadState::class);
+    }
+
+    /** @return HasMany<TicketMention, $this> */
+    public function receivedTicketMentions(): HasMany
+    {
+        return $this->hasMany(TicketMention::class, 'mentioned_user_id');
     }
 }
