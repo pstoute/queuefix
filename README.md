@@ -157,6 +157,21 @@ AWS WorkMail supports standard IMAP/SMTP. Use the **Generic IMAP** option with:
 - SMTP Host: `smtp.mail.us-east-1.awsapps.com`
 - SMTP Port: `465`
 
+### Inbound retry safety
+
+Mailbox polls use bounded batches and keep a database-backed lease for every
+provider message while its processing job is pending. A message that reaches
+`INBOUND_EMAIL_MAX_FAILURE_COUNT` final job failures is left unread but is no
+longer dispatched automatically. After correcting the underlying provider or
+message problem, an operator can explicitly allow that identity to be polled
+again:
+
+```bash
+php artisan queuefix:retry-inbound-email support@example.com 'gmail:provider-message-id'
+```
+
+Use the stable provider identity recorded in the failed job or application log.
+
 ## OAuth Login Setup (for Agents)
 
 OAuth login is available only to active staff accounts that an administrator has already created in **Settings > Users**.
@@ -190,6 +205,11 @@ OAuth login is available only to active staff accounts that an administrator has
 | `DB_PORT` | Database port (`5432` for PG, `3306` for MySQL) | `5432` |
 | `DB_DATABASE` | Database name | `queuefix` |
 | `QUEUE_CONNECTION` | Queue driver | `database` |
+| `INBOUND_EMAIL_POLL_BATCH_SIZE` | Maximum processing jobs dispatched per mailbox poll | `50` |
+| `INBOUND_EMAIL_CLAIM_LEASE_SECONDS` | Pending-message lease; clamped above the processing timeout | `900` |
+| `INBOUND_EMAIL_RETRY_BASE_SECONDS` | Initial cooldown after a final processing failure | `300` |
+| `INBOUND_EMAIL_RETRY_MAX_SECONDS` | Maximum automatic retry cooldown | `3600` |
+| `INBOUND_EMAIL_MAX_FAILURE_COUNT` | Final job failures before explicit recovery is required | `5` |
 | `MAIL_MAILER` | Mail driver | `smtp` |
 | `RATE_LIMITER_STORE` | Shared cache store for authentication rate limits | `database` |
 | `TRUSTED_PROXIES` | Comma-separated exact proxy IPs/CIDRs; leave empty for direct access | empty |

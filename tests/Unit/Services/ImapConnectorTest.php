@@ -9,12 +9,17 @@ namespace Tests\Support {
         /** @var list<string> */
         public static array $fetchBodySections = [];
 
-        /** @var array<string, string|false> */
+        /** @var array<array-key, string|false> */
         public static array $bodyBySection = [];
 
         public static ?object $structure = null;
 
-        public static string $searchCriteria = '';
+        public static string $overviewSequence = '';
+
+        public static int $messageCount = 1;
+
+        /** @var list<object>|false */
+        public static array|false $overviewRows = [];
 
         public static int $seenWrites = 0;
 
@@ -32,7 +37,9 @@ namespace Tests\Support {
             self::$fetchBodySections = [];
             self::$bodyBySection = [];
             self::$structure = null;
-            self::$searchCriteria = '';
+            self::$overviewSequence = '';
+            self::$messageCount = 1;
+            self::$overviewRows = [(object) ['msgno' => 1, 'uid' => 456, 'seen' => 0]];
             self::$seenWrites = 0;
             self::$seenFlags = 0;
             self::$seenSequence = '';
@@ -45,21 +52,27 @@ namespace Tests\Support {
 namespace App\Services\Email {
     use Tests\Support\ImapFunctionState;
 
-    function imap_search(mixed $connection, string $criteria): array
+    function imap_num_msg(mixed $connection): int
     {
-        ImapFunctionState::$searchCriteria = $criteria;
+        return ImapFunctionState::$messageCount;
+    }
 
-        return [1];
+    /** @return list<object>|false */
+    function imap_fetch_overview(mixed $connection, string $sequence, int $flags = 0): array|false
+    {
+        ImapFunctionState::$overviewSequence = $sequence;
+
+        return ImapFunctionState::$overviewRows;
     }
 
     function imap_uid(mixed $connection, int $emailNumber): int
     {
-        return 456;
+        return 455 + $emailNumber;
     }
 
     function imap_msgno(mixed $connection, int $uid): int
     {
-        return $uid === 456 ? 1 : 0;
+        return $uid > 455 ? $uid - 455 : 0;
     }
 
     function imap_headerinfo(mixed $connection, int $emailNumber): object
@@ -180,7 +193,7 @@ namespace {
             ->and($messages)->toHaveCount(1)
             ->and($messages[0]['provider_message_id'])->toBe('imap:INBOX:123:456')
             ->and($messages[0]['provider_remote_id'])->toBe('456')
-            ->and(ImapFunctionState::$searchCriteria)->toBe('UNSEEN')
+            ->and(ImapFunctionState::$overviewSequence)->toBe('1:1')
             ->and(ImapFunctionState::$fetchBodyFlags)->toBe([FT_PEEK, FT_PEEK])
             ->and(ImapFunctionState::$seenWrites)->toBe(0);
 
@@ -196,6 +209,57 @@ namespace {
             ->and(ImapFunctionState::$seenWrites)->toBe(1)
             ->and(ImapFunctionState::$seenSequence)->toBe('456')
             ->and(ImapFunctionState::$seenFlags)->toBe(ST_UID);
+    });
+
+    test('IMAP rotates through bounded server-side overview windows', function () {
+        config(['inbound.poll_batch_size' => 3]);
+        ImapFunctionState::$messageCount = 100;
+        ImapFunctionState::$overviewRows = array_map(
+            fn (int $messageNumber): object => (object) [
+                'msgno' => $messageNumber,
+                'uid' => 455 + $messageNumber,
+                'seen' => 0,
+            ],
+            range(1, 12),
+        );
+        $connector = imapConnectorForTest();
+        $references = iterator_to_array($connector->fetchNewEmailReferences());
+
+        expect($references)->toHaveCount(12)
+            ->and($references[0]['provider_message_id'])->toBe('imap:INBOX:123:456')
+            ->and($references[11]['provider_message_id'])->toBe('imap:INBOX:123:467')
+            ->and(ImapFunctionState::$overviewSequence)->toBe('1:12')
+            ->and(Mailbox::query()->sole()->imap_poll_cursor)->toBe(13);
+
+        ImapFunctionState::$overviewRows = array_map(
+            fn (int $messageNumber): object => (object) [
+                'msgno' => $messageNumber,
+                'uid' => 455 + $messageNumber,
+                'seen' => 0,
+            ],
+            range(13, 24),
+        );
+        iterator_to_array($connector->fetchNewEmailReferences());
+
+        expect(ImapFunctionState::$overviewSequence)->toBe('13:24')
+            ->and(Mailbox::query()->sole()->imap_poll_cursor)->toBe(25);
+    });
+
+    test('IMAP bounded overview windows filter seen and malformed rows', function () {
+        ImapFunctionState::$messageCount = 4;
+        ImapFunctionState::$overviewRows = [
+            (object) ['msgno' => 1, 'uid' => 456, 'seen' => 1],
+            (object) ['msgno' => 2, 'uid' => 457, 'seen' => 0],
+            (object) ['msgno' => 0, 'uid' => 458, 'seen' => 0],
+            (object) ['msgno' => 4, 'uid' => null, 'seen' => 0],
+        ];
+
+        $references = iterator_to_array(imapConnectorForTest()->fetchNewEmailReferences());
+
+        expect(ImapFunctionState::$overviewSequence)->toBe('1:4')
+            ->and($references)->toHaveCount(2)
+            ->and($references[0]['provider_remote_id'])->toBe('457')
+            ->and($references[1]['provider_remote_id'])->toBe('459');
     });
 
     test('IMAP rejects attachment metadata over the count limit before fetching attachment content', function () {
