@@ -7,6 +7,7 @@ use App\Enums\MessageType;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Exceptions\AttachmentRejected;
+use App\Exceptions\TicketMergeRejected;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendEmailReplyJob;
 use App\Models\Attachment;
@@ -20,6 +21,7 @@ use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -219,6 +221,8 @@ class TicketController extends Controller
 
     public function merge(Request $request, Ticket $ticket): RedirectResponse
     {
+        Gate::authorize('merge', $ticket);
+
         $validated = $request->validate([
             'merge_ticket_id' => ['required', 'exists:tickets,id', function ($attribute, $value, $fail) use ($ticket) {
                 if ($value === $ticket->id) {
@@ -228,7 +232,15 @@ class TicketController extends Controller
         ]);
 
         $secondary = Ticket::findOrFail($validated['merge_ticket_id']);
-        $this->ticketService->mergeTickets($ticket, $secondary);
+        Gate::authorize('merge', $secondary);
+
+        try {
+            $this->ticketService->mergeTickets($ticket, $secondary);
+        } catch (TicketMergeRejected $exception) {
+            throw ValidationException::withMessages([
+                'merge_ticket_id' => $exception->getMessage(),
+            ]);
+        }
 
         return back()->with('success', "Ticket {$secondary->ticket_number} merged into this ticket.");
     }

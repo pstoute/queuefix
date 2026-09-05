@@ -4,6 +4,7 @@ use App\Enums\MessageType;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Customer;
+use App\Models\Mailbox;
 use App\Models\Setting;
 use App\Models\Tag;
 use App\Models\Ticket;
@@ -324,11 +325,72 @@ test('unassigning a ticket', function () {
     ]);
 });
 
-test('merging tickets moves messages', function () {
+test('agents cannot merge tickets', function () {
     actingAs($this->user);
+
+    $customer = Customer::factory()->create();
+    $primaryTicket = Ticket::factory()->create(['customer_id' => $customer->id]);
+    $secondaryTicket = Ticket::factory()->create(['customer_id' => $customer->id]);
+    $message = \App\Models\Message::factory()->create(['ticket_id' => $secondaryTicket->id]);
+
+    post(route('agent.tickets.merge', $primaryTicket), [
+        'merge_ticket_id' => $secondaryTicket->id,
+    ])->assertForbidden();
+
+    expect($message->fresh()->ticket_id)->toBe($secondaryTicket->id)
+        ->and($secondaryTicket->fresh()->status)->toBe(TicketStatus::Open);
+});
+
+test('administrators cannot merge tickets owned by different customers', function () {
+    actingAs(User::factory()->admin()->create());
 
     $primaryTicket = Ticket::factory()->create();
     $secondaryTicket = Ticket::factory()->create();
+    $message = \App\Models\Message::factory()->create(['ticket_id' => $secondaryTicket->id]);
+
+    post(route('agent.tickets.merge', $primaryTicket), [
+        'merge_ticket_id' => $secondaryTicket->id,
+    ])->assertSessionHasErrors('merge_ticket_id');
+
+    expect($message->fresh()->ticket_id)->toBe($secondaryTicket->id)
+        ->and($secondaryTicket->fresh()->status)->toBe(TicketStatus::Open);
+});
+
+test('administrators cannot merge tickets from different mailboxes', function () {
+    actingAs(User::factory()->admin()->create());
+
+    $customer = Customer::factory()->create();
+    $primaryTicket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => Mailbox::factory(),
+    ]);
+    $secondaryTicket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => Mailbox::factory(),
+    ]);
+    $message = \App\Models\Message::factory()->create(['ticket_id' => $secondaryTicket->id]);
+
+    post(route('agent.tickets.merge', $primaryTicket), [
+        'merge_ticket_id' => $secondaryTicket->id,
+    ])->assertSessionHasErrors('merge_ticket_id');
+
+    expect($message->fresh()->ticket_id)->toBe($secondaryTicket->id)
+        ->and($secondaryTicket->fresh()->status)->toBe(TicketStatus::Open);
+});
+
+test('merging tickets moves messages', function () {
+    actingAs(User::factory()->admin()->create());
+
+    $customer = Customer::factory()->create();
+    $mailbox = Mailbox::factory()->create();
+    $primaryTicket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
+    $secondaryTicket = Ticket::factory()->create([
+        'customer_id' => $customer->id,
+        'mailbox_id' => $mailbox->id,
+    ]);
 
     $message1 = \App\Models\Message::factory()->create(['ticket_id' => $secondaryTicket->id]);
     $message2 = \App\Models\Message::factory()->create(['ticket_id' => $secondaryTicket->id]);
@@ -356,10 +418,11 @@ test('merging tickets moves messages', function () {
 });
 
 test('merging tickets syncs tags', function () {
-    actingAs($this->user);
+    actingAs(User::factory()->admin()->create());
 
-    $primaryTicket = Ticket::factory()->create();
-    $secondaryTicket = Ticket::factory()->create();
+    $customer = Customer::factory()->create();
+    $primaryTicket = Ticket::factory()->create(['customer_id' => $customer->id]);
+    $secondaryTicket = Ticket::factory()->create(['customer_id' => $customer->id]);
 
     $tag1 = Tag::factory()->create();
     $tag2 = Tag::factory()->create();
@@ -380,7 +443,7 @@ test('merging tickets syncs tags', function () {
 });
 
 test('cannot merge ticket with itself', function () {
-    actingAs($this->user);
+    actingAs(User::factory()->admin()->create());
 
     $ticket = Ticket::factory()->create();
 

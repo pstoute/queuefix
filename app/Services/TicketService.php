@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\MessageType;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
+use App\Exceptions\TicketMergeRejected;
 use App\Models\Customer;
 use App\Models\Message;
 use App\Models\Setting;
@@ -117,15 +118,47 @@ class TicketService
     public function mergeTickets(Ticket $primary, Ticket $secondary): Ticket
     {
         return DB::transaction(function () use ($primary, $secondary) {
-            $secondary->messages()->update(['ticket_id' => $primary->id]);
+            $primaryId = (string) $primary->getKey();
+            $secondaryId = (string) $secondary->getKey();
 
-            $secondaryTags = $secondary->tags()->pluck('tags.id')->toArray();
-            $primary->tags()->syncWithoutDetaching($secondaryTags);
+            if ($primaryId === $secondaryId) {
+                throw new TicketMergeRejected('Cannot merge a ticket with itself.');
+            }
 
-            $secondary->update(['status' => TicketStatus::Closed]);
-            $primary->update(['last_activity_at' => now()]);
+            $ticketIds = [$primaryId, $secondaryId];
+            sort($ticketIds, SORT_STRING);
 
-            return $primary->fresh();
+            $lockedTickets = Ticket::query()
+                ->whereKey($ticketIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy(fn (Ticket $ticket): string => (string) $ticket->getKey());
+
+            $lockedPrimary = $lockedTickets->get($primaryId);
+            $lockedSecondary = $lockedTickets->get($secondaryId);
+
+            if (! $lockedPrimary instanceof Ticket || ! $lockedSecondary instanceof Ticket) {
+                throw new TicketMergeRejected('One or both tickets are no longer available.');
+            }
+
+            if ($lockedPrimary->customer_id !== $lockedSecondary->customer_id) {
+                throw new TicketMergeRejected('Tickets must belong to the same customer.');
+            }
+
+            if ($lockedPrimary->mailbox_id !== $lockedSecondary->mailbox_id) {
+                throw new TicketMergeRejected('Tickets must belong to the same mailbox.');
+            }
+
+            $lockedSecondary->messages()->update(['ticket_id' => $lockedPrimary->id]);
+
+            $secondaryTags = $lockedSecondary->tags()->pluck('tags.id')->toArray();
+            $lockedPrimary->tags()->syncWithoutDetaching($secondaryTags);
+
+            $lockedSecondary->update(['status' => TicketStatus::Closed]);
+            $lockedPrimary->update(['last_activity_at' => now()]);
+
+            return $lockedPrimary->fresh();
         });
     }
 
