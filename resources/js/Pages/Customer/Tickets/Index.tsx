@@ -1,41 +1,28 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import CustomerLayout from '@/Layouts/CustomerLayout';
-import { PaginatedData, Ticket, Customer } from '@/types';
+import { PaginatedData, Ticket, Customer, TicketStatus } from '@/types';
 import { Button } from '@/Components/ui/button';
 import { Badge } from '@/Components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Separator } from '@/Components/ui/separator';
 import { Plus, MessageSquare, Clock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/Components/ui/select';
 
 interface CustomerTicketsIndexProps {
     tickets: PaginatedData<Ticket>;
     customer: Customer;
+    statuses: TicketStatus[];
+    filters: { status?: string };
 }
 
-export default function CustomerTicketsIndex({ tickets, customer }: CustomerTicketsIndexProps) {
-    const getStatusBadgeVariant = (status: string) => {
-        const variants: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-            open: 'default',
-            pending: 'outline',
-            on_hold: 'secondary',
-            resolved: 'secondary',
-            closed: 'secondary',
-        };
-        return variants[status] || 'default';
-    };
-
-    const getStatusLabel = (status: string) => {
-        const labels: Record<string, string> = {
-            open: 'Open',
-            pending: 'Pending',
-            on_hold: 'On Hold',
-            resolved: 'Resolved',
-            closed: 'Closed',
-        };
-        return labels[status] || status;
-    };
-
+export default function CustomerTicketsIndex({ tickets, customer, statuses, filters }: CustomerTicketsIndexProps) {
     return (
         <CustomerLayout customer={customer}>
             <Head title="My Tickets" />
@@ -57,6 +44,27 @@ export default function CustomerTicketsIndex({ tickets, customer }: CustomerTick
                 </div>
 
                 <Separator />
+
+                <div className="flex justify-end">
+                    <Select
+                        value={filters.status || 'all'}
+                        onValueChange={(status) => router.get(
+                            route('customer.tickets.index'),
+                            status === 'all' ? {} : { status },
+                            { preserveState: true }
+                        )}
+                    >
+                        <SelectTrigger className="w-full sm:w-56">
+                            <SelectValue placeholder="All statuses" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All statuses</SelectItem>
+                            {statuses.map((status) => (
+                                <SelectItem key={status.id} value={status.slug}>{status.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
 
                 {tickets.data.length === 0 ? (
                     <Card>
@@ -92,11 +100,13 @@ export default function CustomerTicketsIndex({ tickets, customer }: CustomerTick
                                                         {ticket.subject}
                                                     </CardTitle>
                                                     <Badge
-                                                        variant={getStatusBadgeVariant(
-                                                            ticket.status
-                                                        )}
+                                                        variant="outline"
+                                                        style={{
+                                                            borderColor: ticket.customer_status?.color,
+                                                            color: ticket.customer_status?.color,
+                                                        }}
                                                     >
-                                                        {getStatusLabel(ticket.status)}
+                                                        {ticket.customer_status?.name || 'In Progress'}
                                                     </Badge>
                                                 </div>
                                                 <CardDescription className="mt-1">

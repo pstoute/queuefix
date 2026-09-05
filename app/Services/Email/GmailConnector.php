@@ -2,21 +2,28 @@
 
 namespace App\Services\Email;
 
+use App\Contracts\MailboxConnector;
+use App\Exceptions\MailboxFetchException;
 use App\Models\Mailbox;
 use Google\Client as GoogleClient;
 use Google\Service\Gmail;
 use Google\Service\Gmail\ModifyMessageRequest;
 use Illuminate\Support\Facades\Log;
 
-class GmailConnector
+class GmailConnector implements MailboxConnector
 {
     private ?Gmail $service = null;
 
     private Mailbox $mailbox;
 
+    private ?MailboxFetchException $lastFailure = null;
+
+    private ?string $providerCursor = null;
+
     public function connect(Mailbox $mailbox): bool
     {
         $this->mailbox = $mailbox;
+        $this->lastFailure = null;
 
         try {
             $client = new GoogleClient;
@@ -27,10 +34,23 @@ class GmailConnector
             if ($client->isAccessTokenExpired()) {
                 $refreshToken = $mailbox->getDecryptedCredential('refresh_token');
                 if ($refreshToken) {
-                    $client->fetchAccessTokenWithRefreshToken($refreshToken);
+                    $refreshed = $client->fetchAccessTokenWithRefreshToken($refreshToken);
+                    if (! isset($refreshed['access_token'])) {
+                        $this->lastFailure = new MailboxFetchException(
+                            MailboxFetchException::CATEGORY_AUTHENTICATION,
+                            'gmail_oauth_refresh_failed',
+                            'Authentication must be renewed before this mailbox can be accessed.',
+                        );
+
+                        return false;
+                    }
                     $mailbox->setEncryptedCredential('access_token', $client->getAccessToken());
                 } else {
-                    Log::error('Gmail refresh token missing', ['mailbox_id' => $mailbox->id]);
+                    $this->lastFailure = new MailboxFetchException(
+                        MailboxFetchException::CATEGORY_AUTHENTICATION,
+                        'gmail_oauth_refresh_missing',
+                        'Authentication must be renewed before this mailbox can be accessed.',
+                    );
 
                     return false;
                 }
@@ -40,9 +60,10 @@ class GmailConnector
 
             return true;
         } catch (\Throwable $e) {
+            $this->lastFailure = MailboxFetchException::classify($e, 'gmail', 'connection');
             Log::error('Gmail connection error', [
                 'mailbox_id' => $mailbox->id,
-                'error' => $e->getMessage(),
+                'error_code' => $this->lastFailure->errorCode,
             ]);
 
             return false;
@@ -52,7 +73,11 @@ class GmailConnector
     public function fetchNewEmails(?\DateTimeInterface $since = null): array
     {
         if (! $this->service) {
-            return [];
+            throw $this->lastFailure ?? new MailboxFetchException(
+                MailboxFetchException::CATEGORY_CONFIGURATION,
+                'gmail_not_connected',
+                'The Gmail connector is not connected.',
+            );
         }
 
         try {
@@ -75,25 +100,34 @@ class GmailConnector
                     Log::warning('Failed to parse Gmail message', [
                         'mailbox_id' => $this->mailbox->id,
                         'message_id' => $msgRef->getId(),
-                        'error' => $e->getMessage(),
+                        'error_code' => 'gmail_message_parse_failed',
                     ]);
                 }
             }
 
             return $messages;
         } catch (\Throwable $e) {
+            if ($e instanceof MailboxFetchException) {
+                throw $e;
+            }
+
+            $failure = MailboxFetchException::classify($e, 'gmail', 'fetch');
             Log::error('Gmail fetch error', [
                 'mailbox_id' => $this->mailbox->id,
-                'error' => $e->getMessage(),
+                'error_code' => $failure->errorCode,
             ]);
 
-            return [];
+            throw $failure;
         }
     }
 
     private function parseMessage(string $messageId): array
     {
         $message = $this->service->users_messages->get('me', $messageId, ['format' => 'full']);
+        $historyId = $message->getHistoryId();
+        if ($historyId !== null && $this->providerCursor === null) {
+            $this->providerCursor = (string) $historyId;
+        }
         $headers = $this->extractHeaders($message->getPayload()->getHeaders());
 
         $body = $this->extractBody($message->getPayload());
@@ -113,6 +147,7 @@ class GmailConnector
             'message_id' => $headers['Message-ID'] ?? $headers['Message-Id'] ?? null,
             'in_reply_to' => $headers['In-Reply-To'] ?? null,
             'references' => $headers['References'] ?? null,
+            'cc' => $this->parseEmailList($headers['Cc'] ?? ''),
             'date' => $headers['Date'] ?? null,
             'attachments' => $attachments,
         ];
@@ -205,6 +240,26 @@ class GmailConnector
         return null;
     }
 
+    /** @return list<array{email: string, display_name: string|null}> */
+    private function parseEmailList(string $value): array
+    {
+        $addresses = [];
+
+        foreach (str_getcsv($value, ',', '"', '\\') as $address) {
+            $address = trim($address);
+            if ($address === '') {
+                continue;
+            }
+
+            $addresses[] = [
+                'email' => $this->parseEmailAddress($address),
+                'display_name' => $this->parseEmailName($address),
+            ];
+        }
+
+        return $addresses;
+    }
+
     public function sendEmail(array $data): bool
     {
         if (! $this->service) {
@@ -215,6 +270,9 @@ class GmailConnector
             $boundary = uniqid('boundary_');
             $rawMessage = "From: {$this->mailbox->email}\r\n";
             $rawMessage .= "To: {$data['to']}\r\n";
+            if (! empty($data['cc'])) {
+                $rawMessage .= 'Cc: '.implode(', ', $data['cc'])."\r\n";
+            }
             $rawMessage .= "Subject: {$data['subject']}\r\n";
             $rawMessage .= "MIME-Version: 1.0\r\n";
 
@@ -251,7 +309,7 @@ class GmailConnector
         } catch (\Throwable $e) {
             Log::error('Gmail send error', [
                 'mailbox_id' => $this->mailbox->id,
-                'error' => $e->getMessage(),
+                'error_code' => MailboxFetchException::classify($e, 'gmail', 'send')->errorCode,
             ]);
 
             return false;
@@ -268,10 +326,24 @@ class GmailConnector
 
                 return ['success' => true, 'message' => 'Gmail connection successful'];
             } catch (\Throwable $e) {
-                return ['success' => false, 'message' => $e->getMessage()];
+                return ['success' => false, 'message' => MailboxFetchException::classify($e, 'gmail', 'test')->getMessage()];
             }
         }
 
-        return ['success' => false, 'message' => 'Failed to connect to Gmail'];
+        return ['success' => false, 'message' => ($this->lastFailure ?? new MailboxFetchException(
+            MailboxFetchException::CATEGORY_PROVIDER,
+            'gmail_connection_failed',
+            'The Gmail connection test failed.',
+        ))->getMessage()];
+    }
+
+    public function lastFailure(): ?MailboxFetchException
+    {
+        return $this->lastFailure;
+    }
+
+    public function providerCursor(): ?string
+    {
+        return $this->providerCursor;
     }
 }
