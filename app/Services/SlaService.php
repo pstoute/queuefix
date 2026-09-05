@@ -2,11 +2,14 @@
 
 namespace App\Services;
 
-use App\Enums\TicketStatus;
+use App\Models\SlaPauseInterval;
 use App\Models\SlaPolicy;
 use App\Models\SlaTimer;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
 
 class SlaService
 {
@@ -20,74 +23,97 @@ class SlaService
             return null;
         }
 
-        return SlaTimer::create([
-            'ticket_id' => $ticket->id,
-            'sla_policy_id' => $policy->id,
-            'first_response_due_at' => now()->addHours($policy->first_response_hours),
-            'resolution_due_at' => now()->addHours($policy->resolution_hours),
-        ]);
+        return DB::transaction(function () use ($ticket, $policy): SlaTimer {
+            $startedAt = now();
+            $timer = SlaTimer::create([
+                'ticket_id' => $ticket->id,
+                'sla_policy_id' => $policy->id,
+                'first_response_due_at' => $startedAt->copy()->addHours($policy->first_response_hours),
+                'resolution_due_at' => $startedAt->copy()->addHours($policy->resolution_hours),
+            ]);
+
+            $ticket->loadMissing('status');
+            if ($ticket->status->pauses_sla) {
+                $this->pauseTimer($timer, $startedAt);
+            }
+
+            return $timer->load('pauseIntervals');
+        });
     }
 
     public function recordFirstResponse(Ticket $ticket): void
     {
-        $timer = $ticket->slaTimer;
-        if (! $timer || $timer->first_responded_at) {
-            return;
-        }
+        DB::transaction(function () use ($ticket): void {
+            $timer = SlaTimer::query()->where('ticket_id', $ticket->id)->lockForUpdate()->first();
+            if (! $timer || $timer->first_responded_at) {
+                return;
+            }
 
-        $timer->update([
-            'first_responded_at' => now(),
-            'first_response_breached' => $timer->first_response_due_at && now()->isAfter($timer->first_response_due_at),
-        ]);
+            $completedAt = now();
+            $effectiveAt = $timer->paused_at ? Carbon::parse($timer->paused_at) : $completedAt;
+            $timer->update([
+                'first_responded_at' => $completedAt,
+                'first_response_breached' => $timer->first_response_breached
+                    || ($timer->first_response_due_at && $effectiveAt->isAfter(Carbon::parse($timer->first_response_due_at))),
+            ]);
+        });
     }
 
     public function recordResolution(Ticket $ticket): void
     {
-        $timer = $ticket->slaTimer;
-        if (! $timer || $timer->resolved_at) {
-            return;
-        }
+        DB::transaction(function () use ($ticket): void {
+            $timer = SlaTimer::query()->where('ticket_id', $ticket->id)->lockForUpdate()->first();
+            if (! $timer || $timer->resolved_at) {
+                return;
+            }
 
-        $effectiveNow = $this->getEffectiveTime($timer);
-
-        $timer->update([
-            'resolved_at' => now(),
-            'resolution_breached' => $timer->resolution_due_at && $effectiveNow->isAfter($timer->resolution_due_at),
-        ]);
+            $completedAt = now();
+            $effectiveAt = $timer->paused_at ? Carbon::parse($timer->paused_at) : $completedAt;
+            $timer->update([
+                'resolved_at' => $completedAt,
+                'resolution_breached' => $timer->resolution_breached
+                    || ($timer->resolution_due_at && $effectiveAt->isAfter(Carbon::parse($timer->resolution_due_at))),
+            ]);
+        });
     }
 
     public function handleStatusChange(Ticket $ticket, TicketStatus $oldStatus, TicketStatus $newStatus): void
     {
-        $timer = $ticket->slaTimer;
-        if (! $timer) {
+        if ($oldStatus->pauses_sla === $newStatus->pauses_sla) {
             return;
         }
 
-        $wasPaused = in_array($oldStatus, TicketStatus::pausedStatuses());
-        $shouldPause = in_array($newStatus, TicketStatus::pausedStatuses());
+        $this->setTimerPauseState($ticket->id, $newStatus->pauses_sla, now());
+    }
 
-        if (! $wasPaused && $shouldPause) {
-            $timer->update(['paused_at' => now()]);
+    public function handleStatusConfigurationChange(TicketStatus $status, bool $previouslyPaused): void
+    {
+        if ($previouslyPaused === $status->pauses_sla) {
+            return;
         }
 
-        if ($wasPaused && ! $shouldPause && $timer->paused_at) {
-            $pausedSeconds = (int) Carbon::parse($timer->paused_at)->diffInSeconds(now());
-            $timer->update([
-                'total_paused_seconds' => $timer->total_paused_seconds + $pausedSeconds,
-                'paused_at' => null,
-            ]);
+        $changedAt = now();
+        Ticket::query()
+            ->where('ticket_status_id', $status->id)
+            ->whereHas('slaTimer')
+            ->pluck('id')
+            ->each(fn (string $ticketId) => $this->setTimerPauseState($ticketId, $status->pauses_sla, $changedAt));
+    }
 
-            if ($timer->first_response_due_at && ! $timer->first_responded_at) {
-                $timer->update([
-                    'first_response_due_at' => Carbon::parse($timer->first_response_due_at)->addSeconds($pausedSeconds),
-                ]);
+    private function setTimerPauseState(string $ticketId, bool $shouldPause, CarbonInterface $changedAt): void
+    {
+        DB::transaction(function () use ($ticketId, $shouldPause, $changedAt): void {
+            $timer = SlaTimer::query()->where('ticket_id', $ticketId)->lockForUpdate()->first();
+            if (! $timer) {
+                return;
             }
-            if ($timer->resolution_due_at && ! $timer->resolved_at) {
-                $timer->update([
-                    'resolution_due_at' => Carbon::parse($timer->resolution_due_at)->addSeconds($pausedSeconds),
-                ]);
+
+            if ($shouldPause) {
+                $this->pauseTimer($timer, $changedAt);
+            } else {
+                $this->resumeTimer($timer, $changedAt);
             }
-        }
+        });
     }
 
     public function checkBreaches(): void
@@ -105,6 +131,7 @@ class SlaService
             ->update(['resolution_breached' => true]);
     }
 
+    /** @return array{first_response: array{status: string, color: string}, resolution: array{status: string, color: string}} */
     public function getSlaStatus(SlaTimer $timer): array
     {
         $firstResponse = $this->calculateSlaStatus(
@@ -112,6 +139,7 @@ class SlaService
             $timer->first_responded_at,
             $timer->first_response_breached,
             $timer->paused_at,
+            $timer->created_at,
         );
 
         $resolution = $this->calculateSlaStatus(
@@ -119,6 +147,7 @@ class SlaService
             $timer->resolved_at,
             $timer->resolution_breached,
             $timer->paused_at,
+            $timer->created_at,
         );
 
         return [
@@ -127,8 +156,14 @@ class SlaService
         ];
     }
 
-    private function calculateSlaStatus(?string $dueAt, ?string $completedAt, bool $breached, ?string $pausedAt): array
-    {
+    /** @return array{status: string, color: string} */
+    private function calculateSlaStatus(
+        ?string $dueAt,
+        ?string $completedAt,
+        bool $breached,
+        ?string $pausedAt,
+        string $startedAt,
+    ): array {
         if (! $dueAt) {
             return ['status' => 'none', 'color' => 'gray'];
         }
@@ -149,14 +184,14 @@ class SlaService
         }
 
         $due = Carbon::parse($dueAt);
-        $remainingMinutes = now()->diffInMinutes($due, false);
-        $totalMinutes = Carbon::parse($dueAt)->diffInMinutes(now());
+        $remainingSeconds = now()->diffInSeconds($due, false);
 
-        if ($remainingMinutes <= 0) {
+        if ($remainingSeconds <= 0) {
             return ['status' => 'breached', 'color' => 'red'];
         }
 
-        $percentRemaining = $totalMinutes > 0 ? ($remainingMinutes / $totalMinutes) * 100 : 100;
+        $totalSeconds = max(1, Carbon::parse($startedAt)->diffInSeconds($due));
+        $percentRemaining = ($remainingSeconds / $totalSeconds) * 100;
 
         if ($percentRemaining <= 25) {
             return ['status' => 'approaching', 'color' => 'yellow'];
@@ -165,12 +200,72 @@ class SlaService
         return ['status' => 'on_track', 'color' => 'green'];
     }
 
-    private function getEffectiveTime(SlaTimer $timer): Carbon
+    private function pauseTimer(SlaTimer $timer, CarbonInterface $pausedAt): void
     {
-        if ($timer->paused_at) {
-            return Carbon::parse($timer->paused_at);
+        if ($timer->paused_at || ($timer->first_responded_at && $timer->resolved_at)) {
+            return;
         }
 
-        return now();
+        $timer->update([
+            'paused_at' => $pausedAt,
+            'first_response_breached' => $timer->first_response_breached
+                || (! $timer->first_responded_at
+                    && $timer->first_response_due_at
+                    && $pausedAt->isAfter(Carbon::parse($timer->first_response_due_at))),
+            'resolution_breached' => $timer->resolution_breached
+                || (! $timer->resolved_at
+                    && $timer->resolution_due_at
+                    && $pausedAt->isAfter(Carbon::parse($timer->resolution_due_at))),
+        ]);
+
+        $timer->pauseIntervals()->create([
+            'started_at' => $pausedAt,
+            'duration_seconds' => 0,
+        ]);
+    }
+
+    private function resumeTimer(SlaTimer $timer, CarbonInterface $resumedAt): void
+    {
+        if (! $timer->paused_at) {
+            return;
+        }
+
+        $pausedAt = Carbon::parse($timer->paused_at);
+        $pausedSeconds = $resumedAt->isAfter($pausedAt)
+            ? (int) $pausedAt->diffInSeconds($resumedAt)
+            : 0;
+
+        $interval = SlaPauseInterval::query()
+            ->where('sla_timer_id', $timer->id)
+            ->whereNull('ended_at')
+            ->orderByDesc('started_at')
+            ->lockForUpdate()
+            ->first();
+
+        if (! $interval) {
+            $interval = $timer->pauseIntervals()->create([
+                'started_at' => $pausedAt,
+                'duration_seconds' => 0,
+            ]);
+        }
+
+        $interval->update([
+            'ended_at' => $resumedAt,
+            'duration_seconds' => $pausedSeconds,
+        ]);
+
+        $updates = [
+            'total_paused_seconds' => $timer->total_paused_seconds + $pausedSeconds,
+            'paused_at' => null,
+        ];
+
+        if ($timer->first_response_due_at && ! $timer->first_responded_at) {
+            $updates['first_response_due_at'] = Carbon::parse($timer->first_response_due_at)->addSeconds($pausedSeconds);
+        }
+        if ($timer->resolution_due_at && ! $timer->resolved_at) {
+            $updates['resolution_due_at'] = Carbon::parse($timer->resolution_due_at)->addSeconds($pausedSeconds);
+        }
+
+        $timer->update($updates);
     }
 }

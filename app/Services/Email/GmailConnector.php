@@ -113,6 +113,7 @@ class GmailConnector
             'message_id' => $headers['Message-ID'] ?? $headers['Message-Id'] ?? null,
             'in_reply_to' => $headers['In-Reply-To'] ?? null,
             'references' => $headers['References'] ?? null,
+            'cc' => $this->parseEmailList($headers['Cc'] ?? ''),
             'date' => $headers['Date'] ?? null,
             'attachments' => $attachments,
         ];
@@ -205,6 +206,26 @@ class GmailConnector
         return null;
     }
 
+    /** @return list<array{email: string, display_name: string|null}> */
+    private function parseEmailList(string $value): array
+    {
+        $addresses = [];
+
+        foreach (str_getcsv($value, ',', '"', '\\') as $address) {
+            $address = trim($address);
+            if ($address === '') {
+                continue;
+            }
+
+            $addresses[] = [
+                'email' => $this->parseEmailAddress($address),
+                'display_name' => $this->parseEmailName($address),
+            ];
+        }
+
+        return $addresses;
+    }
+
     public function sendEmail(array $data): bool
     {
         if (! $this->service) {
@@ -215,6 +236,9 @@ class GmailConnector
             $boundary = uniqid('boundary_');
             $rawMessage = "From: {$this->mailbox->email}\r\n";
             $rawMessage .= "To: {$data['to']}\r\n";
+            if (! empty($data['cc'])) {
+                $rawMessage .= 'Cc: '.implode(', ', $data['cc'])."\r\n";
+            }
             $rawMessage .= "Subject: {$data['subject']}\r\n";
             $rawMessage .= "MIME-Version: 1.0\r\n";
 

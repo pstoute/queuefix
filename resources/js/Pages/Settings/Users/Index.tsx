@@ -67,13 +67,19 @@ export default function UsersIndex({ users }: UsersIndexProps) {
     };
 
     const toggleUserStatus = (userId: string, currentStatus: boolean) => {
-        router.patch(route('settings.users.update', userId), {
+        router.put(route('settings.users.update', userId), {
             is_active: !currentStatus,
         });
     };
 
     const updateUserRole = (userId: string, role: 'admin' | 'agent') => {
-        router.patch(route('settings.users.update', userId), { role });
+        router.put(route('settings.users.update', userId), { role });
+    };
+
+    const toggleSupportManager = (userId: string, currentValue: boolean) => {
+        router.put(route('settings.users.update', userId), {
+            is_support_manager: !currentValue,
+        });
     };
 
     const deleteUser = (userId: string) => {
@@ -196,6 +202,7 @@ export default function UsersIndex({ users }: UsersIndexProps) {
                                     <TableHead>User</TableHead>
                                     <TableHead>Email</TableHead>
                                     <TableHead>Role</TableHead>
+                                    <TableHead>CSAT manager</TableHead>
                                     <TableHead>Status</TableHead>
                                     <TableHead className="w-[50px]"></TableHead>
                                 </TableRow>
@@ -245,6 +252,20 @@ export default function UsersIndex({ users }: UsersIndexProps) {
                                                     </SelectItem>
                                                 </SelectContent>
                                             </Select>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-2">
+                                                <Switch
+                                                    checked={user.is_support_manager}
+                                                    onCheckedChange={() =>
+                                                        toggleSupportManager(user.id, user.is_support_manager)
+                                                    }
+                                                    aria-label={`Toggle low-rating alerts for ${user.name}`}
+                                                />
+                                                <span className="text-sm text-muted-foreground">
+                                                    {user.is_support_manager ? 'Receives alerts' : 'No alerts'}
+                                                </span>
+                                            </div>
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex items-center gap-2">
