@@ -1,15 +1,18 @@
-FROM php:8.3-cli AS base
+FROM php:8.3-cli-bookworm AS base
 
 RUN apt-get update && apt-get install -y \
     git \
     curl \
     libpq-dev \
     default-libmysqlclient-dev \
+    libc-client-dev \
+    libkrb5-dev \
     libzip-dev \
     libicu-dev \
     libxml2-dev \
     unzip \
-    && docker-php-ext-install pdo_pgsql pgsql pdo_mysql zip intl bcmath opcache \
+    && docker-php-ext-configure imap --with-kerberos --with-imap-ssl \
+    && docker-php-ext-install pdo_pgsql pgsql pdo_mysql zip intl bcmath opcache imap \
     && pecl install redis && docker-php-ext-enable redis \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 

@@ -7,6 +7,7 @@
     "license": "MIT",
     "require": {
         "ext-fileinfo": "*",
+        "ext-imap": "*",
         "ext-zip": "*",
         "php": "^8.2",
         "google/apiclient": "^2.0",
