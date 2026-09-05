@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Mailbox;
 use App\Services\Email\InboundEmailClaimService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Str;
 
 class RetryInboundEmailCommand extends Command
 {
@@ -18,10 +19,9 @@ class RetryInboundEmailCommand extends Command
     {
         $mailboxArgument = trim((string) $this->argument('mailbox'));
         $providerMessageId = trim((string) $this->argument('provider_message_id'));
-        $mailbox = Mailbox::query()
-            ->whereKey($mailboxArgument)
-            ->orWhere('email', $mailboxArgument)
-            ->first();
+        $mailbox = Str::isUuid($mailboxArgument)
+            ? Mailbox::query()->find($mailboxArgument)
+            : Mailbox::query()->where('email', $mailboxArgument)->first();
 
         if (! $mailbox) {
             $this->error('Mailbox not found.');

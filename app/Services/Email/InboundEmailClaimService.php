@@ -4,7 +4,7 @@ namespace App\Services\Email;
 
 use App\Models\InboundEmailClaim;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Str;
 
 final class InboundEmailClaimService
 {
@@ -16,8 +16,9 @@ final class InboundEmailClaimService
         $now = now();
         $leaseExpiresAt = $now->copy()->addSeconds($this->policy->claimLeaseSeconds());
 
-        try {
-            InboundEmailClaim::create([
+        $inserted = InboundEmailClaim::query()->getQuery()->insertOrIgnore([
+            [
+                'id' => (string) Str::uuid(),
                 'mailbox_id' => $mailboxId,
                 'idempotency_key' => $idempotencyKey,
                 'claim_token' => $claimToken,
@@ -25,12 +26,13 @@ final class InboundEmailClaimService
                 'retry_not_before' => null,
                 'exhausted_at' => null,
                 'failure_count' => 0,
-            ]);
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+        ]);
 
+        if ($inserted === 1) {
             return true;
-        } catch (UniqueConstraintViolationException) {
-            // An existing lease may be reclaimed below only after both its
-            // lease and any final-failure cooldown have expired.
         }
 
         $claim = InboundEmailClaim::query()
@@ -63,16 +65,19 @@ final class InboundEmailClaimService
     {
         $now = now();
 
-        return InboundEmailClaim::query()
+        $claim = InboundEmailClaim::query()
             ->where('mailbox_id', $mailboxId)
             ->where('idempotency_key', InboundEmailIdentity::key($mailboxId, $providerMessageId))
             ->where('claim_token', $claimToken)
             ->whereNull('exhausted_at')
-            ->where($this->retryIsDue($now))
-            ->update([
-                'lease_expires_at' => $now->copy()->addSeconds($this->policy->claimLeaseSeconds()),
-                'updated_at' => $now,
-            ]) === 1;
+            ->where($this->retryIsDue($now));
+
+        $updated = (clone $claim)->update([
+            'lease_expires_at' => $now->copy()->addSeconds($this->policy->claimLeaseSeconds()),
+            'updated_at' => $now,
+        ]);
+
+        return $updated === 1 || $claim->exists();
     }
 
     public function release(string $mailboxId, string $providerMessageId, string $claimToken): void

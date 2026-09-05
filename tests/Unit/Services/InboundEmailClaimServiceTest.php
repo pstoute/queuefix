@@ -46,6 +46,19 @@ test('an expired lease is reclaimed with a new token and rejects the stale owner
         ->and(InboundEmailClaim::query()->sole()->claim_token)->toBe($newToken);
 });
 
+test('a lease renewal remains valid when the database reports no changed values', function () {
+    $this->freezeTime();
+
+    $service = app(InboundEmailClaimService::class);
+    $mailbox = Mailbox::factory()->create();
+    $providerMessageId = 'gmail:no-op-renewal';
+    $claimToken = (string) Str::uuid();
+
+    expect($service->acquire($mailbox->id, $providerMessageId, $claimToken))->toBeTrue()
+        ->and($service->renew($mailbox->id, $providerMessageId, $claimToken))->toBeTrue()
+        ->and(InboundEmailClaim::query()->sole()->claim_token)->toBe($claimToken);
+});
+
 test('final failures impose bounded cooldowns and then require explicit recovery', function () {
     config([
         'inbound.claim_lease_seconds' => 120,
