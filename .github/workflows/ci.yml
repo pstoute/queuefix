@@ -197,6 +197,13 @@ jobs:
       - name: Verify Docker build context excludes local secrets
         run: bash scripts/verify-docker-build-context.sh
 
+      - name: Verify Docker images build
+        run: |
+          docker build --target development --tag queuefix-ci-development .
+          docker run --rm queuefix-ci-development sh -c 'pnpm exec esbuild --version >/dev/null'
+          docker build --target production --tag queuefix-ci-production .
+          docker run --rm queuefix-ci-production sh -c "test -f public/build/manifest.json && grep -F 'rtl\\:flex-row-reverse' public/build/assets/*.css >/dev/null && ! command -v node && ! command -v pnpm && ! test -e node_modules"
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
