@@ -58,6 +58,117 @@ install_caddy() {
     echo "  ✅ Caddy installed."
 }
 
+configure_demo_environment() (
+    # Environment files contain the application key and provider credentials.
+    # Keep every creation and replacement private from the first write onward.
+    umask 077
+
+    if [ -L .env ] || { [ -e .env ] && [ ! -f .env ]; }; then
+        echo "Refusing to write secrets through a non-regular .env target." >&2
+        return 1
+    fi
+
+    if [ -e .env.demo ] && [ ! -f .env.demo ] && [ ! -L .env.demo ]; then
+        echo "Refusing to remove a non-regular legacy .env.demo target." >&2
+        return 1
+    fi
+
+    # Older setup runs left this unignored secret-bearing overlay behind.
+    # It has no runtime consumer once its values are merged into .env.
+    rm -f -- .env.demo
+
+    if [ -f .env ]; then
+        chmod 0600 .env
+    fi
+
+    local database_password
+    local cleanup_command
+    local environment_overrides
+    local final_environment
+    database_password="$(openssl rand -hex 16)"
+    environment_overrides="$(mktemp .env.overrides.XXXXXX)"
+    printf -v cleanup_command 'rm -f -- %q' "$environment_overrides"
+    trap "$cleanup_command" EXIT
+    final_environment="$(mktemp .env.next.XXXXXX)"
+    printf -v cleanup_command 'rm -f -- %q %q' "$environment_overrides" "$final_environment"
+    trap "$cleanup_command" EXIT
+
+    # Keep .env.example as the base and apply demo values directly so no
+    # second secret-bearing file is persisted in the checkout.
+    cat > "$environment_overrides" <<EOF
+APP_NAME=QueueFix
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://${DOMAIN}
+
+# Demo mode
+QUEUEFIX_DEMO_MODE=true
+QUEUEFIX_DEMO_RESET_INTERVAL_MINUTES=${RESET_INTERVAL}
+
+# Database (matches docker-compose service)
+DB_CONNECTION=pgsql
+DB_HOST=postgres
+DB_PORT=5432
+DB_DATABASE=queuefix
+DB_USERNAME=queuefix
+DB_PASSWORD=${database_password}
+
+# Redis
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# Mail (log driver in demo mode - no emails sent)
+MAIL_MAILER=log
+
+# Queue
+QUEUE_CONNECTION=database
+
+# Session
+SESSION_DRIVER=database
+SESSION_LIFETIME=120
+SESSION_SECURE_COOKIE=true
+
+# Reverse proxy boundary (Caddy reaches the container through this gateway)
+QUEUEFIX_NETWORK_SUBNET=${DOCKER_NETWORK_SUBNET}
+QUEUEFIX_NETWORK_GATEWAY=${DOCKER_NETWORK_GATEWAY}
+TRUSTED_PROXY_REQUIRED=true
+TRUSTED_PROXIES=${DOCKER_NETWORK_GATEWAY}
+EOF
+
+    awk '
+        FNR == NR {
+            separator = index($0, "=")
+            if ($0 !~ /^#/ && separator > 1) {
+                key = substr($0, 1, separator - 1)
+                override[key] = $0
+                order[++count] = key
+            }
+            next
+        }
+        {
+            separator = index($0, "=")
+            if (separator > 1) {
+                key = substr($0, 1, separator - 1)
+                if (key in override) {
+                    next
+                }
+            }
+            print
+        }
+        END {
+            for (i = 1; i <= count; i++) {
+                print override[order[i]]
+            }
+        }
+    ' "$environment_overrides" .env.example > "$final_environment"
+
+    chmod 0600 "$final_environment"
+    mv -f "$final_environment" .env
+    chmod 0600 .env
+    rm -f -- "$environment_overrides"
+    trap - EXIT
+)
+
 main() {
 echo -e "${GREEN}🔧 Setting up QueueFix demo server...${NC}\n"
 
@@ -93,64 +204,7 @@ fi
 
 cd "$APP_DIR"
 
-# Create .env from example if it doesn't exist
-if [ ! -f .env ]; then
-    cp .env.example .env
-fi
-
-# Configure demo-specific environment variables
-# (These override/append to whatever .env.example provides)
-cat > .env.demo <<EOF
-APP_NAME=QueueFix
-APP_ENV=production
-APP_DEBUG=false
-APP_URL=https://${DOMAIN}
-
-# Demo mode
-QUEUEFIX_DEMO_MODE=true
-QUEUEFIX_DEMO_RESET_INTERVAL_MINUTES=${RESET_INTERVAL}
-
-# Database (matches docker-compose service)
-DB_CONNECTION=pgsql
-DB_HOST=postgres
-DB_PORT=5432
-DB_DATABASE=queuefix
-DB_USERNAME=queuefix
-DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)
-
-# Redis
-REDIS_HOST=redis
-REDIS_PORT=6379
-
-# Mail (log driver in demo mode - no emails sent)
-MAIL_MAILER=log
-
-# Queue
-QUEUE_CONNECTION=database
-
-# Session
-SESSION_DRIVER=database
-SESSION_LIFETIME=120
-SESSION_SECURE_COOKIE=true
-
-# Reverse proxy boundary (Caddy reaches the container through this gateway)
-QUEUEFIX_NETWORK_SUBNET=${DOCKER_NETWORK_SUBNET}
-QUEUEFIX_NETWORK_GATEWAY=${DOCKER_NETWORK_GATEWAY}
-TRUSTED_PROXY_REQUIRED=true
-TRUSTED_PROXIES=${DOCKER_NETWORK_GATEWAY}
-EOF
-
-# Merge demo env into .env (demo values override)
-# Keep .env.example values as base, overlay with demo specifics
-cp .env.example .env 2>/dev/null || true
-while IFS= read -r line; do
-    key=$(echo "$line" | cut -d= -f1)
-    if [ -n "$key" ] && [[ ! "$line" =~ ^# ]]; then
-        # Remove existing key from .env, then append new value
-        sed -i "/^${key}=/d" .env 2>/dev/null || true
-        echo "$line" >> .env
-    fi
-done < .env.demo
+configure_demo_environment
 
 echo "  ✅ Application configured."
 
