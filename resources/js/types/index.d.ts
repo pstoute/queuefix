@@ -49,6 +49,7 @@ export interface TicketStatus {
     is_closed: boolean;
     is_system: boolean;
     is_customer_visible: boolean;
+    pauses_sla: boolean;
     tickets_count?: number;
     deleted_at?: string | null;
     created_at?: string;
@@ -173,6 +174,24 @@ export interface SlaTimer {
     first_response_breached: boolean;
     resolution_breached: boolean;
     sla_policy?: SlaPolicy;
+    pause_intervals?: SlaPauseInterval[];
+    status_summary?: {
+        first_response: SlaClockStatus;
+        resolution: SlaClockStatus;
+    };
+}
+
+export interface SlaClockStatus {
+    status: 'none' | 'met' | 'paused' | 'on_track' | 'approaching' | 'breached';
+    color: string;
+}
+
+export interface SlaPauseInterval {
+    id: string;
+    sla_timer_id: string;
+    started_at: string;
+    ended_at?: string | null;
+    duration_seconds: number;
 }
 
 export interface Setting {

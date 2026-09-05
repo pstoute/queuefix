@@ -32,6 +32,7 @@ function statusPayload(array $overrides = []): array
         'is_default' => false,
         'is_closed' => false,
         'is_customer_visible' => true,
+        'pauses_sla' => false,
     ], $overrides);
 }
 
@@ -182,6 +183,29 @@ test('system statuses accept cosmetic edits but retain protected workflow semant
         ->and($system->sort_order)->toBe(99)
         ->and($system->is_closed)->toBeFalse()
         ->and($system->is_customer_visible)->toBeTrue();
+});
+
+test('administrators can configure SLA pause behavior for any active status', function () {
+    actingAs($this->admin);
+    $system = TicketStatus::defaultStatus();
+    $custom = app(TicketStatusService::class)->create(statusPayload());
+
+    put(route('settings.statuses.update', $system), statusPayload([
+        'name' => $system->name,
+        'slug' => $system->slug,
+        'color' => $system->color,
+        'icon' => $system->icon,
+        'sort_order' => $system->sort_order,
+        'is_default' => true,
+        'pauses_sla' => true,
+    ]))->assertRedirect()->assertSessionHas('success');
+
+    put(route('settings.statuses.update', $custom), statusPayload([
+        'pauses_sla' => true,
+    ]))->assertRedirect()->assertSessionHas('success');
+
+    expect($system->fresh()->pauses_sla)->toBeTrue()
+        ->and($custom->fresh()->pauses_sla)->toBeTrue();
 });
 
 test('status validation rejects invalid colors and duplicate slugs', function () {

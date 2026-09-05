@@ -83,6 +83,7 @@ class TicketStatusController extends Controller
             'is_default' => ['required', 'boolean'],
             'is_closed' => ['required', 'boolean'],
             'is_customer_visible' => ['required', 'boolean'],
+            'pauses_sla' => ['required', 'boolean'],
         ]);
     }
 }

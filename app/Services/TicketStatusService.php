@@ -10,6 +10,10 @@ use Illuminate\Validation\ValidationException;
 
 class TicketStatusService
 {
+    public function __construct(
+        private SlaService $slaService,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $attributes
      */
@@ -37,7 +41,6 @@ class TicketStatusService
                 ...$attributes,
                 'is_default' => $makeDefault,
                 'is_system' => false,
-                'pauses_sla' => false,
             ]);
 
             $this->assertDefaultInvariant();
@@ -68,6 +71,7 @@ class TicketStatusService
                     'icon',
                     'sort_order',
                     'is_default',
+                    'pauses_sla',
                 ]);
             }
 
@@ -95,9 +99,11 @@ class TicketStatusService
                 $this->clearDefault($statuses, $lockedStatus->id);
             }
 
+            $previouslyPaused = $lockedStatus->pauses_sla;
             $lockedStatus->fill($attributes);
             $lockedStatus->is_default = $makeDefault;
             $lockedStatus->save();
+            $this->slaService->handleStatusConfigurationChange($lockedStatus, $previouslyPaused);
 
             $this->assertDefaultInvariant();
 

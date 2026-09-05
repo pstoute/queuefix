@@ -11,6 +11,7 @@ use App\Models\Department;
 use App\Models\Ticket;
 use App\Models\TicketStatus;
 use App\Models\User;
+use App\Services\SlaService;
 use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ class TicketController extends Controller
 {
     public function __construct(
         private TicketService $ticketService,
+        private SlaService $slaService,
     ) {}
 
     public function index(Request $request): Response
@@ -88,10 +90,15 @@ class TicketController extends Controller
             'mailbox',
             'status',
             'slaTimer.slaPolicy',
+            'slaTimer.pauseIntervals',
             'messages' => function ($q) {
                 $q->with(['sender', 'attachments'])->orderBy('created_at', 'asc');
             },
         ]);
+
+        if ($ticket->slaTimer) {
+            $ticket->slaTimer->setAttribute('status_summary', $this->slaService->getSlaStatus($ticket->slaTimer));
+        }
 
         return Inertia::render('Agent/Tickets/Show', [
             'ticket' => $ticket,

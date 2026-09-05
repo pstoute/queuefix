@@ -129,8 +129,11 @@ Unit tests verify individual components in isolation, often using mocking for de
 - Inactive policies are ignored
 - Recording first response (met vs breached)
 - Recording resolution (met vs breached)
-- SLA pause on Pending/OnHold status
-- SLA resume extends due dates by paused time
+- Per-status SLA pause configuration
+- SLA resume extends only incomplete due dates by exact paused time
+- Durable pause intervals and accumulated pause duration
+- Idempotent pausing-to-pausing and duplicate transitions
+- Existing-ticket reconciliation when pause configuration changes
 - Breach detection for first response and resolution
 - Paused timers excluded from breach detection
 - Paused time excluded from calculations

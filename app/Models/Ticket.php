@@ -149,9 +149,7 @@ class Ticket extends Model
         return $this->hasMany(Message::class);
     }
 
-    /**
-     * Get the SLA timer for the ticket.
-     */
+    /** @return HasOne<SlaTimer, $this> */
     public function slaTimer(): HasOne
     {
         return $this->hasOne(SlaTimer::class);

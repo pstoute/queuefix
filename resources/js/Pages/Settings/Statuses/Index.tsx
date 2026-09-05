@@ -40,6 +40,7 @@ const emptyStatus = {
     is_default: false,
     is_closed: false,
     is_customer_visible: true,
+    pauses_sla: false,
 };
 
 export default function StatusesIndex({ statuses }: StatusesIndexProps) {
@@ -60,6 +61,7 @@ export default function StatusesIndex({ statuses }: StatusesIndexProps) {
                 is_default: status.is_default,
                 is_closed: status.is_closed,
                 is_customer_visible: status.is_customer_visible,
+                pauses_sla: status.pauses_sla,
             });
         } else {
             setEditingStatus(null);
@@ -227,6 +229,18 @@ export default function StatusesIndex({ statuses }: StatusesIndexProps) {
 
                                         <label className="flex items-center justify-between gap-4">
                                             <span>
+                                                <span className="block text-sm font-medium">Pause SLA clocks</span>
+                                                <span className="block text-xs text-muted-foreground">Freeze incomplete SLA deadlines while tickets use this status.</span>
+                                            </span>
+                                            <Switch
+                                                checked={data.pauses_sla}
+                                                onCheckedChange={(checked) => setData('pauses_sla', checked)}
+                                            />
+                                        </label>
+                                        {errors.pauses_sla && <p className="text-sm text-destructive">{errors.pauses_sla}</p>}
+
+                                        <label className="flex items-center justify-between gap-4">
+                                            <span>
                                                 <span className="block text-sm font-medium">Customer visible</span>
                                                 <span className="block text-xs text-muted-foreground">Show this status name and filter in the customer portal.</span>
                                             </span>
@@ -276,6 +290,7 @@ export default function StatusesIndex({ statuses }: StatusesIndexProps) {
                                                 <h3 className="font-medium">{status.name}</h3>
                                                 {status.is_default && <Badge>Default</Badge>}
                                                 {status.is_closed && <Badge variant="secondary">Closed</Badge>}
+                                                {status.pauses_sla && <Badge variant="outline">Pauses SLA</Badge>}
                                                 {status.is_system && (
                                                     <Badge variant="outline">
                                                         <ShieldCheck className="mr-1 h-3 w-3" /> System

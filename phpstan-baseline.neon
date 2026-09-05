@@ -469,12 +469,6 @@ parameters:
 			path: app/Models/Ticket.php
 
 		-
-			message: '#^Method App\\Models\\Ticket\:\:slaTimer\(\) return type with generic class Illuminate\\Database\\Eloquent\\Relations\\HasOne does not specify its types\: TRelatedModel, TDeclaringModel$#'
-			identifier: missingType.generics
-			count: 1
-			path: app/Models/Ticket.php
-
-		-
 			message: '#^Method App\\Models\\Ticket\:\:tags\(\) return type with generic class Illuminate\\Database\\Eloquent\\Relations\\BelongsToMany does not specify its types\: TRelatedModel, TDeclaringModel, TPivotModel, TAccessor \(2\-4 required\)$#'
 			identifier: missingType.generics
 			count: 1
@@ -773,66 +767,6 @@ parameters:
 			identifier: missingType.iterableValue
 			count: 1
 			path: app/Services/Email/MicrosoftGraphConnector.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$first_responded_at\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/SlaService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$first_response_due_at\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/SlaService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$paused_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/SlaService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$resolution_due_at\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/SlaService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$resolved_at\.$#'
-			identifier: property.notFound
-			count: 2
-			path: app/Services/SlaService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$total_paused_seconds\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/SlaService.php
-
-		-
-			message: '#^Method App\\Services\\SlaService\:\:calculateSlaStatus\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/SlaService.php
-
-		-
-			message: '#^Method App\\Services\\SlaService\:\:getSlaStatus\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/SlaService.php
-
-		-
-			message: '#^Parameter \#1 \$timer of method App\\Services\\SlaService\:\:getEffectiveTime\(\) expects App\\Models\\SlaTimer, Illuminate\\Database\\Eloquent\\Model given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Services/SlaService.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$first_responded_at\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/TicketService.php
 
 		-
 			message: '#^Method App\\Services\\TicketService\:\:addMessage\(\) has parameter \$data with no value type specified in iterable type array\.$#'

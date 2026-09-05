@@ -4,6 +4,8 @@ use App\Enums\MessageType;
 use App\Enums\TicketPriority;
 use App\Models\Customer;
 use App\Models\Setting;
+use App\Models\SlaPauseInterval;
+use App\Models\SlaTimer;
 use App\Models\Tag;
 use App\Models\Ticket;
 use App\Models\TicketStatus;
@@ -217,6 +219,14 @@ test('viewing a ticket detail', function () {
     actingAs($this->user);
 
     $ticket = Ticket::factory()->create();
+    $timer = SlaTimer::factory()->create([
+        'ticket_id' => $ticket->id,
+        'paused_at' => now(),
+    ]);
+    SlaPauseInterval::create([
+        'sla_timer_id' => $timer->id,
+        'started_at' => now(),
+    ]);
 
     get(route('agent.tickets.show', $ticket))
         ->assertOk()
@@ -227,6 +237,8 @@ test('viewing a ticket detail', function () {
             ->has('statuses')
             ->has('priorities')
             ->where('ticket.id', $ticket->id)
+            ->where('ticket.sla_timer.status_summary.first_response.status', 'paused')
+            ->has('ticket.sla_timer.pause_intervals', 1)
         );
 });
 

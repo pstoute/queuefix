@@ -29,11 +29,6 @@ class TicketStatus extends Model
         'pauses_sla',
     ];
 
-    /** @var list<string> */
-    protected $hidden = [
-        'pauses_sla',
-    ];
-
     /** @return array<string, string> */
     protected function casts(): array
     {
