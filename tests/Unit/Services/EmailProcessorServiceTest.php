@@ -1,11 +1,11 @@
 <?php
 
-use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use App\Services\Email\EmailProcessorService;
 use App\Services\TicketService;
 
@@ -14,6 +14,8 @@ beforeEach(function () {
     Setting::set('ticket_counter', '0', 'system');
     $this->ticketService = app(TicketService::class);
     $this->emailProcessor = new EmailProcessorService($this->ticketService);
+    $this->openStatus = TicketStatus::defaultStatus();
+    $this->resolvedStatus = $this->ticketStatusAt(40);
 });
 
 test('creating new ticket from new sender', function () {
@@ -33,7 +35,7 @@ test('creating new ticket from new sender', function () {
     expect($ticket)->toBeInstanceOf(Ticket::class);
     expect($ticket->subject)->toBe('Help needed');
     expect($ticket->mailbox_id)->toBe($mailbox->id);
-    expect($ticket->status)->toBe(TicketStatus::Open);
+    expect($ticket->status->is($this->openStatus))->toBeTrue();
 
     $this->assertDatabaseHas('customers', [
         'email' => 'newcustomer@example.com',
@@ -187,7 +189,7 @@ test('reopening resolved ticket on customer reply', function () {
         'message_id' => '<original@example.com>',
     ]);
 
-    expect($ticket->status)->toBe(TicketStatus::Resolved);
+    expect($ticket->status->is($this->resolvedStatus))->toBeTrue();
 
     $emailData = [
         'from_email' => $customer->email,
@@ -198,8 +200,8 @@ test('reopening resolved ticket on customer reply', function () {
 
     $resultTicket = $this->emailProcessor->processInboundEmail($emailData, $mailbox);
 
-    $resultTicket->refresh();
-    expect($resultTicket->status)->toBe(TicketStatus::Open);
+    $resultTicket->refresh()->load('status');
+    expect($resultTicket->status->is($this->openStatus))->toBeTrue();
 });
 
 test('reopening closed ticket on customer reply', function () {
@@ -220,8 +222,8 @@ test('reopening closed ticket on customer reply', function () {
 
     $resultTicket = $this->emailProcessor->processInboundEmail($emailData, $mailbox);
 
-    $resultTicket->refresh();
-    expect($resultTicket->status)->toBe(TicketStatus::Open);
+    $resultTicket->refresh()->load('status');
+    expect($resultTicket->status->is($this->openStatus))->toBeTrue();
 });
 
 test('attachment processing creates attachment records', function () {

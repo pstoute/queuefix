@@ -20,36 +20,28 @@ import {
   TableHeader,
   TableRow,
 } from '@/Components/ui/table';
-import { cn } from '@/lib/utils';
 import { formatRelativeTime, formatDate } from '@/lib/hooks';
 import { useState } from 'react';
-import { Plus, Search, Inbox, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, Inbox, ChevronLeft, ChevronRight, Eye, Check } from 'lucide-react';
 
 interface TicketsIndexProps extends PageProps {
   tickets: PaginatedData<Ticket>;
   filters: {
     status?: string;
     priority?: string;
-    assignee?: string;
+    assigned_to?: string;
     department?: string;
     search?: string;
+    watching?: string;
+    unread?: string;
   };
   agents: User[];
   departments: Array<{ id: string; name: string }>;
-  counts: {
-    open: number;
-    pending: number;
-    unassigned: number;
-  };
+  statuses: TicketStatus[];
+  statusCounts: TicketStatus[];
+  unassignedCount: number;
+  unreadCount: number;
 }
-
-const statusConfig = {
-  open: { label: 'Open', color: 'bg-green-500' },
-  pending: { label: 'Pending', color: 'bg-amber-500' },
-  on_hold: { label: 'On Hold', color: 'bg-gray-500' },
-  resolved: { label: 'Resolved', color: 'bg-blue-500' },
-  closed: { label: 'Closed', color: 'bg-gray-500' },
-};
 
 const priorityConfig = {
   low: { label: 'Low', variant: 'secondary' as const },
@@ -58,7 +50,16 @@ const priorityConfig = {
   urgent: { label: 'Urgent', variant: 'destructive' as const },
 };
 
-export default function TicketsIndex({ tickets, filters, agents, departments, counts }: TicketsIndexProps) {
+export default function TicketsIndex({
+  tickets,
+  filters,
+  agents,
+  departments,
+  statuses,
+  statusCounts,
+  unassignedCount,
+  unreadCount,
+}: TicketsIndexProps) {
   const [searchQuery, setSearchQuery] = useState(filters.search || '');
 
   const handleFilterChange = (key: string, value: string) => {
@@ -112,29 +113,24 @@ export default function TicketsIndex({ tickets, filters, agents, departments, co
         </div>
 
         {/* Stats cards */}
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Open</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{counts.open}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{counts.pending}</div>
-            </CardContent>
-          </Card>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {statusCounts.map((status) => (
+            <Card key={status.id}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{status.name}</CardTitle>
+                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: status.color }} />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{status.tickets_count || 0}</div>
+              </CardContent>
+            </Card>
+          ))}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Unassigned</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{counts.unassigned}</div>
+              <div className="text-2xl font-bold">{unassignedCount}</div>
             </CardContent>
           </Card>
         </div>
@@ -156,6 +152,37 @@ export default function TicketsIndex({ tickets, filters, agents, departments, co
                 </div>
               </form>
 
+              <Button
+                type="button"
+                variant={filters.assigned_to === 'me' ? 'default' : 'outline'}
+                onClick={() => handleFilterChange('assigned_to', filters.assigned_to === 'me' ? 'all' : 'me')}
+                aria-pressed={filters.assigned_to === 'me'}
+              >
+                Assigned to me
+              </Button>
+
+              <Button
+                type="button"
+                variant={filters.watching ? 'default' : 'outline'}
+                onClick={() => handleFilterChange('watching', filters.watching ? 'all' : '1')}
+                aria-pressed={Boolean(filters.watching)}
+              >
+                <Eye className="mr-2 h-4 w-4" />
+                Watching
+              </Button>
+
+              <Button
+                type="button"
+                variant={filters.unread ? 'default' : 'outline'}
+                onClick={() => handleFilterChange('unread', filters.unread ? 'all' : '1')}
+                aria-pressed={Boolean(filters.unread)}
+              >
+                Unread
+                <Badge variant="secondary" className="ml-2">
+                  {unreadCount}
+                </Badge>
+              </Button>
+
               {/* Status filter */}
               <Select
                 value={filters.status || 'all'}
@@ -166,11 +193,9 @@ export default function TicketsIndex({ tickets, filters, agents, departments, co
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="open">Open</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="on_hold">On Hold</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                  <SelectItem value="closed">Closed</SelectItem>
+                  {statuses.map((status) => (
+                    <SelectItem key={status.id} value={status.slug}>{status.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
 
@@ -193,8 +218,8 @@ export default function TicketsIndex({ tickets, filters, agents, departments, co
 
               {/* Assignee filter */}
               <Select
-                value={filters.assignee || 'all'}
-                onValueChange={(value) => handleFilterChange('assignee', value)}
+                value={filters.assigned_to || 'all'}
+                onValueChange={(value) => handleFilterChange('assigned_to', value)}
               >
                 <SelectTrigger className="w-full lg:w-[180px]">
                   <SelectValue placeholder="All Assignees" />
@@ -259,22 +284,22 @@ export default function TicketsIndex({ tickets, filters, agents, departments, co
                       <TableHead>Tags</TableHead>
                       <TableHead>Last Activity</TableHead>
                       <TableHead>Created</TableHead>
+                      <TableHead className="w-[110px]"><span className="sr-only">Actions</span></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {tickets.data.map((ticket) => (
                       <TableRow
                         key={ticket.id}
-                        className="cursor-pointer"
+                        className={ticket.unread_count ? 'cursor-pointer bg-blue-50/50 dark:bg-blue-950/20' : 'cursor-pointer'}
                         onClick={() => router.get(`/agent/tickets/${ticket.id}`)}
                       >
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
                             <div
-                              className={cn(
-                                'h-2 w-2 rounded-full shrink-0',
-                                statusConfig[ticket.status].color
-                              )}
+                              className="h-2 w-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: ticket.status?.color || '#6b7280' }}
+                              title={ticket.status?.name || 'Unknown status'}
                             />
                             <span className="text-muted-foreground">
                               #{ticket.ticket_number}
@@ -283,7 +308,14 @@ export default function TicketsIndex({ tickets, filters, agents, departments, co
                         </TableCell>
                         <TableCell>
                           <div className="max-w-md">
-                            <div className="font-medium line-clamp-1">{ticket.subject}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="font-medium line-clamp-1">{ticket.subject}</div>
+                              {Boolean(ticket.unread_count) && (
+                                <Badge variant="default" className="shrink-0 text-xs">
+                                  {ticket.unread_count} unread
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -332,6 +364,22 @@ export default function TicketsIndex({ tickets, filters, agents, departments, co
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {formatDate(ticket.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          {Boolean(ticket.unread_count) && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                router.patch(`/agent/tickets/${ticket.id}/read`, {}, { preserveScroll: true });
+                              }}
+                            >
+                              <Check className="mr-1 h-4 w-4" />
+                              Read
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

@@ -4,16 +4,22 @@ namespace App\Http\Controllers\Agent;
 
 use App\Enums\MessageType;
 use App\Enums\TicketPriority;
-use App\Enums\TicketStatus;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendEmailReplyJob;
 use App\Models\Customer;
 use App\Models\Department;
+use App\Models\Message;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use App\Models\User;
+use App\Services\SlaService;
+use App\Services\TicketMentionService;
+use App\Services\TicketReadStateService;
 use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -21,15 +27,21 @@ class TicketController extends Controller
 {
     public function __construct(
         private TicketService $ticketService,
+        private SlaService $slaService,
+        private TicketReadStateService $readStateService,
+        private TicketMentionService $mentionService,
     ) {}
 
     public function index(Request $request): Response
     {
-        $query = Ticket::with(['customer', 'assignee', 'department', 'tags', 'slaTimer.slaPolicy'])
+        /** @var User $user */
+        $user = $request->user();
+        $query = Ticket::with(['customer', 'assignee', 'department', 'tags', 'status', 'slaTimer.slaPolicy'])
             ->orderBy('last_activity_at', 'desc');
+        $this->readStateService->addUnreadCount($query, $user);
 
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $query->whereHas('status', fn ($statusQuery) => $statusQuery->where('slug', $request->status));
         }
 
         if ($request->filled('priority')) {
@@ -44,10 +56,18 @@ class TicketController extends Controller
             if ($request->assigned_to === 'unassigned') {
                 $query->whereNull('assigned_to');
             } elseif ($request->assigned_to === 'me') {
-                $query->where('assigned_to', $request->user()->id);
+                $query->where('assigned_to', $user->id);
             } else {
                 $query->where('assigned_to', $request->assigned_to);
             }
+        }
+
+        if ($request->boolean('watching')) {
+            $query->whereHas('watchers', fn ($watcherQuery) => $watcherQuery->whereKey($user->id));
+        }
+
+        if ($request->boolean('unread')) {
+            $this->readStateService->applyUnreadTicketConstraint($query, $user);
         }
 
         if ($request->filled('search')) {
@@ -66,36 +86,73 @@ class TicketController extends Controller
 
         return Inertia::render('Agent/Tickets/Index', [
             'tickets' => $tickets,
-            'filters' => $request->only(['status', 'priority', 'assigned_to', 'department', 'search']),
+            'filters' => $request->only(['status', 'priority', 'assigned_to', 'department', 'search', 'watching', 'unread']),
             'agents' => User::where('is_active', true)->select('id', 'name', 'email', 'avatar')->get(),
             'departments' => Department::orderBy('name')->get(['id', 'name']),
-            'counts' => [
-                'open' => Ticket::where('status', TicketStatus::Open)->count(),
-                'pending' => Ticket::where('status', TicketStatus::Pending)->count(),
-                'unassigned' => Ticket::whereNull('assigned_to')->whereNotIn('status', [TicketStatus::Resolved, TicketStatus::Closed])->count(),
-            ],
+            'statuses' => TicketStatus::query()->ordered()->get(),
+            'statusCounts' => TicketStatus::query()->ordered()->withCount('tickets')->get(),
+            'unassignedCount' => Ticket::whereNull('assigned_to')
+                ->whereHas('status', fn ($statusQuery) => $statusQuery->where('is_closed', false))
+                ->count(),
+            'unreadCount' => $this->readStateService->unreadTicketCount($user),
         ]);
     }
 
-    public function show(Ticket $ticket): Response
+    public function show(Request $request, Ticket $ticket): Response
     {
+        Gate::authorize('view', $ticket);
+
+        /** @var User $user */
+        $user = $request->user();
         $ticket->load([
             'customer',
             'assignee',
             'department',
             'tags',
             'mailbox',
+            'status',
             'slaTimer.slaPolicy',
+            'slaTimer.pauseIntervals',
+            'watchers' => fn ($query) => $query
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->select('users.id', 'name', 'email', 'avatar'),
             'messages' => function ($q) {
-                $q->with(['sender', 'attachments'])->orderBy('created_at', 'asc');
+                $q->with([
+                    'sender',
+                    'attachments',
+                    'mentions' => fn ($mentionQuery) => $mentionQuery
+                        ->whereNull('removed_at')
+                        ->with('mentionedUser:id,handle'),
+                ])
+                    ->orderBy('created_at')
+                    ->orderBy('id');
             },
         ]);
+
+        /** @var Message|null $latestMessage */
+        $latestMessage = $ticket->messages->last();
+        $this->readStateService->markRead($ticket, $user, $latestMessage);
+
+        if ($ticket->slaTimer) {
+            $ticket->slaTimer->setAttribute('status_summary', $this->slaService->getSlaStatus($ticket->slaTimer));
+        }
+
+        $ticket->setAttribute('is_watching', $ticket->watchers->contains('id', $user->id));
+        $ticket->setAttribute('unread_count', 0);
 
         return Inertia::render('Agent/Tickets/Show', [
             'ticket' => $ticket,
             'agents' => User::where('is_active', true)->select('id', 'name', 'email', 'avatar')->get(),
-            'statuses' => collect(TicketStatus::cases())->map(fn ($s) => ['value' => $s->value, 'label' => $s->label()]),
+            'statuses' => TicketStatus::query()->ordered()->get(),
             'priorities' => collect(TicketPriority::cases())->map(fn ($p) => ['value' => $p->value, 'label' => $p->label()]),
+            'mentionableUsers' => User::query()
+                ->where('is_active', true)
+                ->whereKeyNot($user->id)
+                ->orderBy('name')
+                ->get(['id', 'name', 'handle', 'avatar', 'is_active'])
+                ->filter(fn (User $candidate): bool => Gate::forUser($candidate)->allows('view', $ticket))
+                ->values(),
         ]);
     }
 
@@ -123,7 +180,7 @@ class TicketController extends Controller
             ['name' => $validated['customer_name']]
         );
 
-        $ticket = $this->ticketService->createTicket($validated, $customer);
+        $ticket = $this->ticketService->createTicket($validated, $customer, creator: $request->user());
 
         return redirect()->route('agent.tickets.show', $ticket)
             ->with('success', 'Ticket created successfully.');
@@ -137,14 +194,19 @@ class TicketController extends Controller
         ]);
 
         $type = MessageType::from($validated['type'] ?? 'reply');
+        $isInternalNote = $type === MessageType::InternalNote;
 
         $message = $this->ticketService->addMessage($ticket, [
             'type' => $type,
-            'body_text' => strip_tags($validated['body']),
-            'body_html' => $validated['body'],
+            'body_text' => $isInternalNote ? $validated['body'] : strip_tags($validated['body']),
+            'body_html' => $isInternalNote ? null : $validated['body'],
             'sender_type' => User::class,
             'sender_id' => $request->user()->id,
-        ]);
+        ], actor: $request->user());
+
+        if ($isInternalNote) {
+            $this->mentionService->syncMentions($ticket, $message, $request->user());
+        }
 
         if ($type === MessageType::Reply && $ticket->mailbox_id) {
             SendEmailReplyJob::dispatch($ticket->id, $message->id);
@@ -156,10 +218,15 @@ class TicketController extends Controller
     public function updateStatus(Request $request, Ticket $ticket): RedirectResponse
     {
         $validated = $request->validate([
-            'status' => 'required|string|in:'.implode(',', array_column(TicketStatus::cases(), 'value')),
+            'status' => [
+                'required',
+                'string',
+                Rule::exists('ticket_statuses', 'slug')->whereNull('deleted_at'),
+            ],
         ]);
 
-        $this->ticketService->updateStatus($ticket, TicketStatus::from($validated['status']));
+        $status = TicketStatus::query()->where('slug', $validated['status'])->firstOrFail();
+        $this->ticketService->updateStatus($ticket, $status, $request->user());
 
         return back()->with('success', 'Status updated.');
     }
@@ -182,7 +249,7 @@ class TicketController extends Controller
         ]);
 
         $agent = $validated['assigned_to'] ? User::find($validated['assigned_to']) : null;
-        $this->ticketService->assignTicket($ticket, $agent);
+        $this->ticketService->assignTicket($ticket, $agent, $request->user());
 
         return back()->with('success', $agent ? "Assigned to {$agent->name}." : 'Unassigned.');
     }
@@ -198,7 +265,7 @@ class TicketController extends Controller
         ]);
 
         $secondary = Ticket::findOrFail($validated['merge_ticket_id']);
-        $this->ticketService->mergeTickets($ticket, $secondary);
+        $this->ticketService->mergeTickets($ticket, $secondary, $request->user());
 
         return back()->with('success', "Ticket {$secondary->ticket_number} merged into this ticket.");
     }
