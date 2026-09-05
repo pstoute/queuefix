@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\UserRole;
+use App\Notifications\ResetPassword;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -52,6 +53,14 @@ class User extends Authenticatable
             'role' => UserRole::class,
             'is_active' => 'boolean',
         ];
+    }
+
+    /**
+     * Queue a password reset notification outside the public request.
+     */
+    public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
+    {
+        $this->notify(new ResetPassword($token));
     }
 
     /**

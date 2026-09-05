@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Auth\RateLimitedPasswordBrokerManager;
 use App\Contracts\AttachmentScanner;
 use App\Services\Attachments\UnavailableAttachmentScanner;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -31,6 +32,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->configurePasswordBroker();
         $this->configureSessionCookieSecurity();
 
         if (config('trustedproxy.required') && config('trustedproxy.proxies') === []) {
@@ -59,6 +61,17 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinutes(15, 3)->by('recipient:'.hash('sha256', $recipient)),
             ];
         });
+
+        RateLimiter::for('password-reset', fn (Request $request): Limit => Limit::perMinute(20)
+            ->by('source:'.$request->ip()));
+    }
+
+    private function configurePasswordBroker(): void
+    {
+        // Resolve Laravel's deferred provider before replacing its broker manager.
+        $this->app->make('auth.password');
+        $this->app->singleton('auth.password', fn ($app) => new RateLimitedPasswordBrokerManager($app));
+        $this->app->bind('auth.password.broker', fn ($app) => $app->make('auth.password')->broker());
     }
 
     private function configureSessionCookieSecurity(): void
