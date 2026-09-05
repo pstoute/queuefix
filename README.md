@@ -230,7 +230,10 @@ OAuth login is available only to active staff accounts that an administrator has
 | `INBOUND_EMAIL_MAX_FAILURE_COUNT` | Final job failures before explicit recovery is required | `5` |
 | `MAIL_MAILER` | Mail driver | `smtp` |
 | `RATE_LIMITER_STORE` | Shared cache store for authentication rate limits | `database` |
-| `TRUSTED_PROXIES` | Comma-separated exact proxy IPs/CIDRs; leave empty for direct access | empty |
+| `TRUSTED_PROXY_REQUIRED` | Fail startup when a reverse proxy is required but no trusted peer is configured | `false` |
+| `TRUSTED_PROXIES` | Comma-separated exact proxy IPs/CIDRs; leave empty for direct non-Compose access | empty |
+| `QUEUEFIX_NETWORK_SUBNET` | Private Docker Compose subnet; override with the gateway if it conflicts on the host | `172.30.255.0/28` |
+| `QUEUEFIX_NETWORK_GATEWAY` | Fixed Compose gateway used as the exact trusted proxy peer | `172.30.255.1` |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID | — |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth secret | — |
 | `MICROSOFT_CLIENT_ID` | Microsoft OAuth client ID | — |
@@ -241,6 +244,8 @@ OAuth login is available only to active staff accounts that an administrator has
 | `MICROSOFT_GRAPH_CLIENT_SECRET` | Graph API secret | — |
 
 See `.env.example` for the complete list.
+
+Docker Compose enforces required-proxy mode and derives its only trusted proxy from the fixed bridge gateway, ignoring generic `TRUSTED_PROXY_REQUIRED` and `TRUSTED_PROXIES` values from a shared `.env` file. The host reverse proxy therefore supplies the original client address without allowing arbitrary network peers to spoof forwarding headers. If the default subnet conflicts with another Docker network, set `QUEUEFIX_NETWORK_SUBNET` and `QUEUEFIX_NETWORK_GATEWAY` together before creating the Compose network.
 
 ## Upgrades
 

@@ -31,6 +31,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        if (config('trustedproxy.required') && config('trustedproxy.proxies') === []) {
+            throw new LogicException('TRUSTED_PROXIES must contain the immediate reverse proxy when TRUSTED_PROXY_REQUIRED is enabled.');
+        }
+
         $limiterStore = (string) config('cache.limiter');
         $limiterDriver = config("cache.stores.{$limiterStore}.driver");
 

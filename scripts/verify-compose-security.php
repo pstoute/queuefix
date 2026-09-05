@@ -2,8 +2,38 @@
 
 declare(strict_types=1);
 
+function ipv4CidrContains(string $cidr, string $address): bool
+{
+    [$network, $prefix] = array_pad(explode('/', $cidr, 2), 2, null);
+
+    if ($prefix === null
+        || ! preg_match('/^\d+$/', $prefix)
+        || (int) $prefix < 1
+        || (int) $prefix > 32
+        || filter_var($network, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false
+        || filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
+        return false;
+    }
+
+    $networkAddress = ip2long($network);
+    $candidateAddress = ip2long($address);
+    $mask = (0xFFFFFFFF << (32 - (int) $prefix)) & 0xFFFFFFFF;
+
+    return ($networkAddress & $mask) === ($candidateAddress & $mask);
+}
+
+$composeCommand = ['docker', 'compose'];
+$composeEnvFile = getenv('COMPOSE_ENV_FILE');
+
+if ($composeEnvFile !== false && $composeEnvFile !== '') {
+    $composeCommand[] = '--env-file';
+    $composeCommand[] = $composeEnvFile;
+}
+
+$composeCommand = [...$composeCommand, 'config', '--format', 'json'];
+
 $process = proc_open(
-    ['docker', 'compose', 'config', '--format', 'json'],
+    $composeCommand,
     [
         1 => ['pipe', 'w'],
         2 => ['pipe', 'w'],
@@ -39,6 +69,28 @@ $services = $compose['services'] ?? [];
 $app = $services['app'] ?? [];
 $postgres = $services['postgres'] ?? [];
 $mailpit = $services['mailpit'] ?? [];
+$appEnvironment = $app['environment'] ?? [];
+$queuefixNetwork = $compose['networks']['queuefix'] ?? [];
+$ipamConfig = $queuefixNetwork['ipam']['config'][0] ?? [];
+$networkSubnet = (string) ($ipamConfig['subnet'] ?? '');
+$networkGateway = (string) ($ipamConfig['gateway'] ?? '');
+
+if (! ipv4CidrContains($networkSubnet, $networkGateway)) {
+    $failures[] = 'The queuefix network must define a valid IPv4 subnet and gateway on that subnet.';
+}
+
+if (($appEnvironment['TRUSTED_PROXY_REQUIRED'] ?? null) !== 'true') {
+    $failures[] = 'The app must require a trusted reverse proxy in Docker Compose.';
+}
+
+$trustedProxies = array_values(array_filter(array_map(
+    'trim',
+    explode(',', (string) ($appEnvironment['TRUSTED_PROXIES'] ?? '')),
+)));
+
+if ($networkGateway === '' || $trustedProxies !== [$networkGateway]) {
+    $failures[] = 'The app must trust only the exact queuefix network gateway as its reverse proxy peer.';
+}
 
 foreach ($postgres['ports'] ?? [] as $port) {
     $hostIp = is_array($port) ? ($port['host_ip'] ?? null) : null;
@@ -141,7 +193,6 @@ if (! array_key_exists('queuefix', $mailpit['networks'] ?? [])) {
     $failures[] = 'Mailpit must remain attached to the queuefix network.';
 }
 
-$appEnvironment = $app['environment'] ?? [];
 $expectedMailer = getenv('COMPOSE_EXPECTED_MAILER');
 
 if ($expectedMailer !== false

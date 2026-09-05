@@ -45,6 +45,7 @@ restore_maintenance_mode() {
 trap restore_maintenance_mode EXIT
 
 git checkout --detach "$target_tag"
+docker compose config --quiet
 docker compose up -d --build --remove-orphans
 docker compose exec -T app composer install --no-interaction --prefer-dist --optimize-autoloader
 docker compose exec -T app pnpm install --frozen-lockfile
