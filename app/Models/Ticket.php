@@ -172,4 +172,10 @@ class Ticket extends Model
     {
         return $this->belongsToMany(User::class, 'ticket_watchers')->withTimestamps();
     }
+
+    /** @return HasMany<TicketReadState, $this> */
+    public function readStates(): HasMany
+    {
+        return $this->hasMany(TicketReadState::class);
+    }
 }

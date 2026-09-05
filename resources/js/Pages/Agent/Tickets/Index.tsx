@@ -22,23 +22,25 @@ import {
 } from '@/Components/ui/table';
 import { formatRelativeTime, formatDate } from '@/lib/hooks';
 import { useState } from 'react';
-import { Plus, Search, Inbox, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
+import { Plus, Search, Inbox, ChevronLeft, ChevronRight, Eye, Check } from 'lucide-react';
 
 interface TicketsIndexProps extends PageProps {
   tickets: PaginatedData<Ticket>;
   filters: {
     status?: string;
     priority?: string;
-    assignee?: string;
+    assigned_to?: string;
     department?: string;
     search?: string;
     watching?: string;
+    unread?: string;
   };
   agents: User[];
   departments: Array<{ id: string; name: string }>;
   statuses: TicketStatus[];
   statusCounts: TicketStatus[];
   unassignedCount: number;
+  unreadCount: number;
 }
 
 const priorityConfig = {
@@ -56,6 +58,7 @@ export default function TicketsIndex({
   statuses,
   statusCounts,
   unassignedCount,
+  unreadCount,
 }: TicketsIndexProps) {
   const [searchQuery, setSearchQuery] = useState(filters.search || '');
 
@@ -151,12 +154,33 @@ export default function TicketsIndex({
 
               <Button
                 type="button"
+                variant={filters.assigned_to === 'me' ? 'default' : 'outline'}
+                onClick={() => handleFilterChange('assigned_to', filters.assigned_to === 'me' ? 'all' : 'me')}
+                aria-pressed={filters.assigned_to === 'me'}
+              >
+                Assigned to me
+              </Button>
+
+              <Button
+                type="button"
                 variant={filters.watching ? 'default' : 'outline'}
                 onClick={() => handleFilterChange('watching', filters.watching ? 'all' : '1')}
                 aria-pressed={Boolean(filters.watching)}
               >
                 <Eye className="mr-2 h-4 w-4" />
                 Watching
+              </Button>
+
+              <Button
+                type="button"
+                variant={filters.unread ? 'default' : 'outline'}
+                onClick={() => handleFilterChange('unread', filters.unread ? 'all' : '1')}
+                aria-pressed={Boolean(filters.unread)}
+              >
+                Unread
+                <Badge variant="secondary" className="ml-2">
+                  {unreadCount}
+                </Badge>
               </Button>
 
               {/* Status filter */}
@@ -194,8 +218,8 @@ export default function TicketsIndex({
 
               {/* Assignee filter */}
               <Select
-                value={filters.assignee || 'all'}
-                onValueChange={(value) => handleFilterChange('assignee', value)}
+                value={filters.assigned_to || 'all'}
+                onValueChange={(value) => handleFilterChange('assigned_to', value)}
               >
                 <SelectTrigger className="w-full lg:w-[180px]">
                   <SelectValue placeholder="All Assignees" />
@@ -260,13 +284,14 @@ export default function TicketsIndex({
                       <TableHead>Tags</TableHead>
                       <TableHead>Last Activity</TableHead>
                       <TableHead>Created</TableHead>
+                      <TableHead className="w-[110px]"><span className="sr-only">Actions</span></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {tickets.data.map((ticket) => (
                       <TableRow
                         key={ticket.id}
-                        className="cursor-pointer"
+                        className={ticket.unread_count ? 'cursor-pointer bg-blue-50/50 dark:bg-blue-950/20' : 'cursor-pointer'}
                         onClick={() => router.get(`/agent/tickets/${ticket.id}`)}
                       >
                         <TableCell className="font-medium">
@@ -283,7 +308,14 @@ export default function TicketsIndex({
                         </TableCell>
                         <TableCell>
                           <div className="max-w-md">
-                            <div className="font-medium line-clamp-1">{ticket.subject}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="font-medium line-clamp-1">{ticket.subject}</div>
+                              {Boolean(ticket.unread_count) && (
+                                <Badge variant="default" className="shrink-0 text-xs">
+                                  {ticket.unread_count} unread
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -332,6 +364,22 @@ export default function TicketsIndex({
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {formatDate(ticket.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          {Boolean(ticket.unread_count) && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                router.patch(`/agent/tickets/${ticket.id}/read`, {}, { preserveScroll: true });
+                              }}
+                            >
+                              <Check className="mr-1 h-4 w-4" />
+                              Read
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

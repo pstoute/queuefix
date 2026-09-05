@@ -97,6 +97,7 @@ export interface Ticket {
     sla_timer?: SlaTimer;
     watchers?: User[];
     is_watching?: boolean;
+    unread_count?: number;
 }
 
 export interface Message {

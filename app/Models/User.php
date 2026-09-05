@@ -87,4 +87,10 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(Ticket::class, 'ticket_watchers')->withTimestamps();
     }
+
+    /** @return HasMany<TicketReadState, $this> */
+    public function ticketReadStates(): HasMany
+    {
+        return $this->hasMany(TicketReadState::class);
+    }
 }

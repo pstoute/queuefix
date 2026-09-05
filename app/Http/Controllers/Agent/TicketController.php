@@ -8,13 +8,16 @@ use App\Http\Controllers\Controller;
 use App\Jobs\SendEmailReplyJob;
 use App\Models\Customer;
 use App\Models\Department;
+use App\Models\Message;
 use App\Models\Ticket;
 use App\Models\TicketStatus;
 use App\Models\User;
 use App\Services\SlaService;
+use App\Services\TicketReadStateService;
 use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -24,12 +27,16 @@ class TicketController extends Controller
     public function __construct(
         private TicketService $ticketService,
         private SlaService $slaService,
+        private TicketReadStateService $readStateService,
     ) {}
 
     public function index(Request $request): Response
     {
+        /** @var User $user */
+        $user = $request->user();
         $query = Ticket::with(['customer', 'assignee', 'department', 'tags', 'status', 'slaTimer.slaPolicy'])
             ->orderBy('last_activity_at', 'desc');
+        $this->readStateService->addUnreadCount($query, $user);
 
         if ($request->filled('status')) {
             $query->whereHas('status', fn ($statusQuery) => $statusQuery->where('slug', $request->status));
@@ -47,14 +54,18 @@ class TicketController extends Controller
             if ($request->assigned_to === 'unassigned') {
                 $query->whereNull('assigned_to');
             } elseif ($request->assigned_to === 'me') {
-                $query->where('assigned_to', $request->user()->id);
+                $query->where('assigned_to', $user->id);
             } else {
                 $query->where('assigned_to', $request->assigned_to);
             }
         }
 
         if ($request->boolean('watching')) {
-            $query->whereHas('watchers', fn ($watcherQuery) => $watcherQuery->whereKey($request->user()->id));
+            $query->whereHas('watchers', fn ($watcherQuery) => $watcherQuery->whereKey($user->id));
+        }
+
+        if ($request->boolean('unread')) {
+            $this->readStateService->applyUnreadTicketConstraint($query, $user);
         }
 
         if ($request->filled('search')) {
@@ -73,7 +84,7 @@ class TicketController extends Controller
 
         return Inertia::render('Agent/Tickets/Index', [
             'tickets' => $tickets,
-            'filters' => $request->only(['status', 'priority', 'assigned_to', 'department', 'search', 'watching']),
+            'filters' => $request->only(['status', 'priority', 'assigned_to', 'department', 'search', 'watching', 'unread']),
             'agents' => User::where('is_active', true)->select('id', 'name', 'email', 'avatar')->get(),
             'departments' => Department::orderBy('name')->get(['id', 'name']),
             'statuses' => TicketStatus::query()->ordered()->get(),
@@ -81,11 +92,16 @@ class TicketController extends Controller
             'unassignedCount' => Ticket::whereNull('assigned_to')
                 ->whereHas('status', fn ($statusQuery) => $statusQuery->where('is_closed', false))
                 ->count(),
+            'unreadCount' => $this->readStateService->unreadTicketCount($user),
         ]);
     }
 
-    public function show(Ticket $ticket): Response
+    public function show(Request $request, Ticket $ticket): Response
     {
+        Gate::authorize('view', $ticket);
+
+        /** @var User $user */
+        $user = $request->user();
         $ticket->load([
             'customer',
             'assignee',
@@ -100,15 +116,22 @@ class TicketController extends Controller
                 ->orderBy('name')
                 ->select('users.id', 'name', 'email', 'avatar'),
             'messages' => function ($q) {
-                $q->with(['sender', 'attachments'])->orderBy('created_at', 'asc');
+                $q->with(['sender', 'attachments'])
+                    ->orderBy('created_at')
+                    ->orderBy('id');
             },
         ]);
+
+        /** @var Message|null $latestMessage */
+        $latestMessage = $ticket->messages->last();
+        $this->readStateService->markRead($ticket, $user, $latestMessage);
 
         if ($ticket->slaTimer) {
             $ticket->slaTimer->setAttribute('status_summary', $this->slaService->getSlaStatus($ticket->slaTimer));
         }
 
-        $ticket->setAttribute('is_watching', $ticket->watchers->contains('id', request()->user()->id));
+        $ticket->setAttribute('is_watching', $ticket->watchers->contains('id', $user->id));
+        $ticket->setAttribute('unread_count', 0);
 
         return Inertia::render('Agent/Tickets/Show', [
             'ticket' => $ticket,
