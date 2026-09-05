@@ -80,6 +80,19 @@ test('updating user role', function () {
     ]);
 });
 
+test('configuring a support manager is independent from administrative access', function () {
+    actingAs($this->admin);
+
+    $user = User::factory()->create(['role' => UserRole::Agent]);
+
+    put(route('settings.users.update', $user), [
+        'is_support_manager' => true,
+    ])->assertRedirect()->assertSessionHas('success');
+
+    expect($user->fresh()->role)->toBe(UserRole::Agent->value)
+        ->and($user->fresh()->is_support_manager)->toBeTrue();
+});
+
 test('user email must be unique', function () {
     actingAs($this->admin);
 

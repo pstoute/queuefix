@@ -20,11 +20,22 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
         body: '',
         cc_recipient_ids: ticket.cc_recipients?.map((recipient) => recipient.id) || [] as string[],
     });
+    const ratingForm = useForm({
+        rating: 0,
+        feedback: '',
+    });
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
         post(route('customer.tickets.reply', ticket.id), {
             onSuccess: () => reset(),
+        });
+    };
+
+    const submitRating: FormEventHandler = (e) => {
+        e.preventDefault();
+        ratingForm.post(route('customer.tickets.rating.store', ticket.id), {
+            preserveScroll: true,
         });
     };
 
@@ -205,7 +216,67 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
 
                 {ticket.customer_status?.is_closed && (
                     <Card>
-                        <CardContent className="py-6 text-center">
+                        <CardHeader>
+                            <CardTitle>Your support experience</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            {ticket.rating ? (
+                                <div className="rounded-md bg-green-50 p-4 text-green-900">
+                                    <p className="font-medium">Thank you for your feedback.</p>
+                                    <p className="mt-1 text-sm">You rated this support experience {ticket.rating.rating} out of 5.</p>
+                                    {ticket.rating.feedback && (
+                                        <p className="mt-3 whitespace-pre-wrap text-sm">{ticket.rating.feedback}</p>
+                                    )}
+                                </div>
+                            ) : (
+                                <form onSubmit={submitRating} className="space-y-4">
+                                    <fieldset className="space-y-2">
+                                        <legend className="text-sm font-medium">How would you rate the support you received?</legend>
+                                        <div className="flex flex-wrap gap-2">
+                                            {[1, 2, 3, 4, 5].map((score) => (
+                                                <Button
+                                                    key={score}
+                                                    type="button"
+                                                    variant={ratingForm.data.rating === score ? 'default' : 'outline'}
+                                                    onClick={() => ratingForm.setData('rating', score)}
+                                                    aria-pressed={ratingForm.data.rating === score}
+                                                    aria-label={`${score} out of 5`}
+                                                >
+                                                    {score}
+                                                </Button>
+                                            ))}
+                                        </div>
+                                        {ratingForm.errors.rating && (
+                                            <p className="text-sm text-destructive">{ratingForm.errors.rating}</p>
+                                        )}
+                                    </fieldset>
+
+                                    <div className="space-y-2">
+                                        <label htmlFor="rating-feedback" className="text-sm font-medium">
+                                            Additional feedback (optional)
+                                        </label>
+                                        <Textarea
+                                            id="rating-feedback"
+                                            value={ratingForm.data.feedback}
+                                            onChange={(event) => ratingForm.setData('feedback', event.target.value)}
+                                            maxLength={5000}
+                                            rows={4}
+                                            className="resize-none"
+                                        />
+                                        {ratingForm.errors.feedback && (
+                                            <p className="text-sm text-destructive">{ratingForm.errors.feedback}</p>
+                                        )}
+                                    </div>
+
+                                    <Button
+                                        type="submit"
+                                        disabled={ratingForm.processing || ratingForm.data.rating === 0}
+                                    >
+                                        {ratingForm.processing ? 'Submitting...' : 'Submit rating'}
+                                    </Button>
+                                </form>
+                            )}
+
                             <p className="text-sm text-gray-600">
                                 This ticket has been closed. If you need further assistance, please
                                 create a new ticket.

@@ -117,6 +117,7 @@ class TicketController extends Controller
                 ->whereNull('removed_at')
                 ->orderBy('email'),
             'mailbox',
+            'rating.customer:id,name',
             'status',
             'slaTimer.slaPolicy',
             'slaTimer.pauseIntervals',

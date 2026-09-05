@@ -27,6 +27,7 @@ class DatabaseSeeder extends Seeder
         $admin = User::factory()->admin()->create([
             'name' => 'Admin User',
             'email' => 'admin@example.com',
+            'is_support_manager' => true,
         ]);
 
         // Create agent users

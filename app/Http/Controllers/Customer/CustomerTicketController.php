@@ -70,6 +70,7 @@ class CustomerTicketController extends Controller
                 ->where('validation_state', 'approved')
                 ->whereNull('removed_at')
                 ->orderBy('email'),
+            'rating',
             'status',
         ]);
 

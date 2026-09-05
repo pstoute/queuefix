@@ -9,6 +9,7 @@ export interface User {
     handle: string;
     email: string;
     role: UserRole;
+    is_support_manager: boolean;
     avatar?: string;
     is_active: boolean;
     email_verified_at?: string;
@@ -100,6 +101,18 @@ export interface Ticket {
     is_watching?: boolean;
     unread_count?: number;
     cc_recipients?: TicketCcRecipient[];
+    rating?: TicketRating | null;
+}
+
+export interface TicketRating {
+    id: string;
+    ticket_id: string;
+    customer_id: string;
+    rating: number;
+    feedback?: string | null;
+    submitted_at: string;
+    staff_notified_at?: string | null;
+    customer?: Pick<Customer, 'id' | 'name'>;
 }
 
 export interface Message {

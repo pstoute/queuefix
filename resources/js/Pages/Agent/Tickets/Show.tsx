@@ -42,6 +42,7 @@ import {
   X,
   Eye,
   EyeOff,
+  Star,
 } from 'lucide-react';
 
 interface TicketShowProps extends PageProps {
@@ -575,6 +576,41 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
 
               {/* Right: Sidebar */}
               <div className="space-y-6 overflow-y-auto">
+                {ticket.rating && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Star className="h-4 w-4" />
+                        Customer rating
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex items-center gap-1" aria-label={`${ticket.rating.rating} out of 5`}>
+                        {[1, 2, 3, 4, 5].map((score) => (
+                          <Star
+                            key={score}
+                            className={cn(
+                              'h-5 w-5',
+                              score <= ticket.rating!.rating
+                                ? 'fill-amber-400 text-amber-400'
+                                : 'text-muted-foreground'
+                            )}
+                          />
+                        ))}
+                        <span className="ml-2 text-sm font-medium">{ticket.rating.rating}/5</span>
+                      </div>
+                      {ticket.rating.feedback && (
+                        <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                          {ticket.rating.feedback}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Submitted {formatDateTime(ticket.rating.submitted_at)}
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* Ticket metadata */}
                 <Card>
                   <CardHeader>

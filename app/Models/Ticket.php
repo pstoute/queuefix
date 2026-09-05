@@ -198,4 +198,10 @@ class Ticket extends Model
     {
         return $this->hasMany(TicketCcAudit::class);
     }
+
+    /** @return HasOne<TicketRating, $this> */
+    public function rating(): HasOne
+    {
+        return $this->hasOne(TicketRating::class);
+    }
 }

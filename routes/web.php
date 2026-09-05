@@ -12,6 +12,7 @@ use App\Http\Controllers\Auth\MagicLinkController;
 use App\Http\Controllers\Auth\SocialiteController;
 use App\Http\Controllers\Customer\CustomerAuthController;
 use App\Http\Controllers\Customer\CustomerTicketController;
+use App\Http\Controllers\Customer\CustomerTicketRatingController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Settings\AppearanceController;
 use App\Http\Controllers\Settings\DepartmentController;
@@ -148,6 +149,7 @@ Route::prefix('portal')->name('customer.')->group(function () {
         Route::get('tickets', [CustomerTicketController::class, 'index'])->name('tickets.index');
         Route::get('tickets/{ticket}', [CustomerTicketController::class, 'show'])->name('tickets.show');
         Route::post('tickets/{ticket}/reply', [CustomerTicketController::class, 'reply'])->name('tickets.reply');
+        Route::post('tickets/{ticket}/rating', [CustomerTicketRatingController::class, 'store'])->name('tickets.rating.store');
         Route::post('logout', [CustomerAuthController::class, 'logout'])->name('logout');
     });
 });
