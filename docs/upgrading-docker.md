@@ -17,9 +17,9 @@ From the QueueFix repository directory, run:
 ./deploy/update-docker.sh vX.Y.Z
 ```
 
-The script refuses a dirty Git working tree, verifies that the specified tag exists on `origin`, creates a timestamped PostgreSQL dump in `storage/backups/`, activates Laravel maintenance mode, checks out the exact tag, rebuilds the Compose services, installs locked dependencies, builds frontend assets, runs migrations, and checks `/up`.
+The script refuses a dirty Git working tree, verifies that the specified tag exists on `origin`, creates a timestamped PostgreSQL dump in `storage/backups/`, activates Laravel maintenance mode, checks out the exact tag, rebuilds the Compose services, installs locked dependencies, builds frontend assets, runs migrations, and checks `/up`. The backup directory is restricted to the invoking account, completed dumps use mode `0600`, and an incomplete dump is removed before the updater exits.
 
-It never deletes a backup or runs a database restore automatically. Keep the backup until the deployment has been smoke-tested.
+It never deletes a completed backup or runs a database restore automatically. Each dump contains application-wide sensitive data. Keep it only as long as your retention policy requires, restrict access to the deployment administrators, and use encryption in transit and at rest for any off-host copy. Keep the pre-upgrade backup until the deployment has been smoke-tested.
 
 ## Docker network configuration
 

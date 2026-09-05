@@ -32,11 +32,66 @@ if ! git rev-parse --verify --quiet "refs/tags/${target_tag}" >/dev/null; then
 fi
 
 backup_dir="storage/backups"
-mkdir -p "$backup_dir"
-backup_file="${backup_dir}/queuefix-pre-${target_tag}-$(date +%Y%m%d%H%M%S).sql"
+original_umask="$(umask)"
+umask 077
 
-echo "Creating PostgreSQL backup at ${backup_file}"
-docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$backup_file"
+if [[ -L "$backup_dir" || ( -e "$backup_dir" && ! -d "$backup_dir" ) ]]; then
+  echo "Refusing to use a backup path that is not a real directory: ${backup_dir}" >&2
+  exit 1
+fi
+
+mkdir -p "$backup_dir"
+
+if [[ ! -O "$backup_dir" ]]; then
+  echo "Refusing to write backups to a directory owned by another account: ${backup_dir}" >&2
+  exit 1
+fi
+
+chmod 0700 "$backup_dir"
+
+backup_timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+backup_tmp="$(mktemp "${backup_dir}/.queuefix-pre-${target_tag}-${backup_timestamp}.sql.tmp.XXXXXX")"
+backup_nonce="${backup_tmp##*.tmp.}"
+backup_file="${backup_dir}/queuefix-pre-${target_tag}-${backup_timestamp}-${backup_nonce}.sql"
+
+cleanup_incomplete_backup() {
+  if [[ -n "${backup_tmp:-}" && -e "$backup_tmp" ]]; then
+    rm -f -- "$backup_tmp"
+  fi
+}
+
+handle_backup_signal() {
+  local status="$1"
+  trap - EXIT HUP INT TERM
+  cleanup_incomplete_backup
+  exit "$status"
+}
+
+trap cleanup_incomplete_backup EXIT
+trap 'handle_backup_signal 129' HUP
+trap 'handle_backup_signal 130' INT
+trap 'handle_backup_signal 143' TERM
+
+echo "Creating a private PostgreSQL backup"
+docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$backup_tmp"
+
+if [[ ! -s "$backup_tmp" ]]; then
+  echo "PostgreSQL returned an empty backup; aborting the update." >&2
+  exit 1
+fi
+
+chmod 0600 "$backup_tmp"
+
+if [[ -e "$backup_file" || -L "$backup_file" ]]; then
+  echo "Refusing to replace an existing backup: ${backup_file}" >&2
+  exit 1
+fi
+
+mv -- "$backup_tmp" "$backup_file"
+backup_tmp=""
+trap - EXIT HUP INT TERM
+umask "$original_umask"
+echo "Created PostgreSQL backup at ${backup_file}"
 
 docker compose exec -T app php artisan down --retry=60 || true
 restore_maintenance_mode() {

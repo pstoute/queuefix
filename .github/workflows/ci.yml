@@ -194,6 +194,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify updater backup handling
+        run: bash tests/scripts/update-docker-backup-test.sh
+
       - name: Verify Docker build context excludes local secrets
         run: bash scripts/verify-docker-build-context.sh
 
