@@ -46,6 +46,35 @@ test('fetching dispatches processing without acknowledging the provider message'
         ->and(Message::count())->toBe(0);
 });
 
+test('processing jobs reject hydrated message or attachment data at the queue boundary', function () {
+    $mailboxId = '00000000-0000-4000-8000-000000000001';
+
+    expect(fn () => new ProcessInboundEmailJob([
+        'provider_message_id' => 'gmail:provider-1',
+        'provider_remote_id' => 'provider-1',
+        'attachments' => [['content' => "\x89PNG"]],
+    ], $mailboxId))->toThrow(InvalidArgumentException::class, 'provider references only')
+        ->and(fn () => new ProcessInboundEmailJob([
+            'provider_message_id' => 'gmail:provider-1',
+            'provider_remote_id' => ['provider-1'],
+        ], $mailboxId))->toThrow(InvalidArgumentException::class, 'scalar values only')
+        ->and(fn () => new ProcessInboundEmailJob([
+            'provider_message_id' => 'gmail:provider-1',
+            'provider_remote_id' => str_repeat('x', 2049),
+        ], $mailboxId))->toThrow(InvalidArgumentException::class, 'bounded stable provider identities')
+        ->and(fn () => new ProcessInboundEmailJob([
+            'provider_message_id' => 'gmail:provider-1',
+            'provider_remote_id' => 'provider-1',
+        ], str_repeat('x', 1_000_000)))->toThrow(InvalidArgumentException::class, 'valid mailbox UUID');
+
+    $job = new ProcessInboundEmailJob([
+        'provider_message_id' => 'gmail:provider-1',
+        'provider_remote_id' => 'provider-1',
+    ], $mailboxId);
+
+    expect(fn () => json_encode(['job' => serialize($job)], JSON_THROW_ON_ERROR))->not->toThrow(Throwable::class);
+});
+
 test('processor failure leaves the provider message unacknowledged', function () {
     $mailbox = Mailbox::factory()->create();
     $email = [
@@ -73,6 +102,30 @@ test('processor failure leaves the provider message unacknowledged', function ()
     expect(fn () => (new ProcessInboundEmailJob($providerReference, $mailbox->id))
         ->handle($processor, $connectorFactory))
         ->toThrow(RuntimeException::class, 'Injected processing failure');
+
+    expect(InboundEmailReceipt::count())->toBe(0)
+        ->and(Ticket::count())->toBe(0)
+        ->and(Message::count())->toBe(0);
+});
+
+test('provider hydration failure leaves the provider message unacknowledged for retry', function () {
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'imap:INBOX:123:456',
+        'provider_remote_id' => '456',
+        'uid_validity' => 123,
+    ];
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->once()->andReturnTrue();
+    $connector->shouldReceive('fetchEmail')->once()->with($providerReference)
+        ->andThrow(new RuntimeException('IMAP message part fetch failed.'));
+    $connector->shouldNotReceive('acknowledge');
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->once()->andReturn($connector);
+
+    expect(fn () => (new ProcessInboundEmailJob($providerReference, $mailbox->id))
+        ->handle(app(EmailProcessorService::class), $connectorFactory))
+        ->toThrow(RuntimeException::class, 'IMAP message part fetch failed.');
 
     expect(InboundEmailReceipt::count())->toBe(0)
         ->and(Ticket::count())->toBe(0)

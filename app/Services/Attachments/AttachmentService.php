@@ -168,7 +168,7 @@ class AttachmentService
 
     public function isTerminalRejection(AttachmentRejected $exception): bool
     {
-        return ! in_array($exception->reasonCode, ['storage_failed', 'inspection_failed'], true);
+        return ! in_array($exception->reasonCode, ['storage_failed', 'inspection_failed', 'quota_unavailable'], true);
     }
 
     private function storagePath(Message $message, string $filename, int $index, ?string $stableNamespace): string

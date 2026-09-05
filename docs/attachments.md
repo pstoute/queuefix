@@ -6,17 +6,21 @@ QueueFix sends every inbound-email and web-upload attachment through the same
 ## Limits and allowed formats
 
 The default limits are 10 files per message, 10 MB per file, 25 MB for the
-combined message, 5 GB per mailbox, and 25 GB for the installation. They can be
-changed with the `ATTACHMENT_*` environment variables documented in
+combined message, 2 MB for an IMAP message body, 5 GB per mailbox, and 25 GB for
+the installation. They can be changed with the `ATTACHMENT_*` and
+`INBOUND_EMAIL_MAX_BODY_BYTES` environment variables documented in
 `.env.example`.
 
 Mailbox connectors queue only stable provider message references. The
 processing job hydrates one message at a time, checks provider-owned count and
 size metadata before requesting attachment content, and rechecks actual bytes
-before storage. Storage admission is serialized so concurrent workers cannot
-race past the cumulative quotas. Messages rejected by attachment policy retain
-their body and a rejected metadata record, then complete provider
-acknowledgement instead of retrying forever.
+before storage. Graph attachment bodies are streamed only up to the configured
+limit. IMAP walks nested MIME leaves and treats named text parts, inline binary
+parts, and non-text leaves as attachments; bodies with missing or excessive
+size metadata are omitted without fetching. Storage admission is serialized so
+concurrent workers cannot race past the cumulative quotas. Messages rejected by
+attachment policy retain their body and a rejected metadata record, then
+complete provider acknowledgement instead of retrying forever.
 
 QueueFix accepts PDF, plain text, CSV, PNG, JPEG, GIF, WebP, and macro-free
 Office Open XML documents (`.docx`, `.xlsx`, and `.pptx`). It rejects generic

@@ -138,6 +138,75 @@ test('Graph fetches one admitted attachment as raw bounded content', function ()
         ->and($message['attachments'][0]['content'])->toBe($content);
 });
 
+test('Graph rejects missing attachment size metadata before content fetch', function () {
+    Http::fake(function (Request $request) {
+        if (str_contains($request->url(), '/me/messages/provider-missing-size?')) {
+            return Http::response(graphMessageFixture('provider-missing-size', true));
+        }
+
+        if (str_contains($request->url(), '/me/messages/provider-missing-size/attachments?')) {
+            return Http::response(['value' => [[
+                '@odata.type' => '#microsoft.graph.fileAttachment',
+                'id' => 'attachment-missing-size',
+                'name' => 'evidence.txt',
+                'contentType' => 'text/plain',
+            ]]]);
+        }
+
+        return Http::response('content must not be fetched', 500);
+    });
+
+    $connector = new MicrosoftGraphConnector;
+    expect($connector->connect(graphMailbox()))->toBeTrue();
+    $message = $connector->fetchEmail([
+        'provider_message_id' => 'microsoft:provider-missing-size',
+        'provider_remote_id' => 'provider-missing-size',
+    ]);
+
+    expect($message['attachments'])->toBe([])
+        ->and($message['attachment_rejection']['reason_code'])->toBe('size_unavailable');
+    Http::assertNotSent(fn (Request $request): bool => str_ends_with($request->url(), '/$value'));
+});
+
+test('Graph caps an underreported attachment response at the actual byte limit', function () {
+    config([
+        'attachments.max_file_bytes' => 5,
+        'attachments.max_message_bytes' => 10,
+    ]);
+    Http::fake(function (Request $request) {
+        if (str_contains($request->url(), '/me/messages/provider-underreported?')) {
+            return Http::response(graphMessageFixture('provider-underreported', true));
+        }
+
+        if (str_contains($request->url(), '/me/messages/provider-underreported/attachments?')) {
+            return Http::response(['value' => [[
+                '@odata.type' => '#microsoft.graph.fileAttachment',
+                'id' => 'attachment-underreported',
+                'name' => 'evidence.txt',
+                'contentType' => 'text/plain',
+                'size' => 1,
+            ]]]);
+        }
+
+        if (str_ends_with($request->url(), '/attachments/attachment-underreported/$value')) {
+            return Http::response(str_repeat('x', 1000));
+        }
+
+        return Http::response([], 404);
+    });
+
+    $connector = new MicrosoftGraphConnector;
+    expect($connector->connect(graphMailbox()))->toBeTrue();
+    $message = $connector->fetchEmail([
+        'provider_message_id' => 'microsoft:provider-underreported',
+        'provider_remote_id' => 'provider-underreported',
+    ]);
+
+    expect($message['attachments'])->toBe([])
+        ->and($message['attachment_rejection']['reason_code'])->toBe('file_too_large');
+    Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/$value'));
+});
+
 test('Graph enforces mailbox storage quota before attachment content fetch', function () {
     config([
         'attachments.max_installation_bytes' => 100,

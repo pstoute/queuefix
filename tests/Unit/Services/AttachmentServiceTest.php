@@ -144,6 +144,12 @@ test('enforces per-file and combined message limits before writing', function ()
     expect(Storage::disk('private')->allFiles())->toBe([]);
 });
 
+test('treats a missing quota lock as retryable infrastructure failure', function () {
+    expect($this->service->isTerminalRejection(
+        new AttachmentRejected('quota_unavailable', 'Attachment storage admission is temporarily unavailable.'),
+    ))->toBeFalse();
+});
+
 test('records duplicate content separately with the same digest', function () {
     $attachments = $this->service->storeForMessage($this->message, [
         ['filename' => 'first.txt', 'content' => 'duplicate'],

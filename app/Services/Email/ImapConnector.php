@@ -139,8 +139,9 @@ class ImapConnector implements InboundEmailConnector
             ? $header->to[0]->mailbox.'@'.$header->to[0]->host
             : null;
 
-        $body = $this->getBody($emailNumber, $structure);
-        $attachmentResult = $this->getAttachments($emailNumber, $structure);
+        $parts = $this->leafParts($structure);
+        $attachmentResult = $this->getAttachments($emailNumber, $parts);
+        $body = $this->getBody($emailNumber, $parts);
 
         $rawHeader = imap_fetchheader($this->connection, $emailNumber);
         $messageId = $this->extractHeader($rawHeader, 'Message-ID');
@@ -196,38 +197,69 @@ class ImapConnector implements InboundEmailConnector
         }
     }
 
-    private function getBody(int $emailNumber, object $structure): array
+    /**
+     * @param  list<array{part: object, section: string}>  $parts
+     * @return array{text: ?string, html: ?string}
+     */
+    private function getBody(int $emailNumber, array $parts): array
     {
         $body = ['text' => null, 'html' => null];
+        $bodyParts = array_values(array_filter(
+            $parts,
+            fn (array $descriptor): bool => $this->isBodyPart($descriptor['part']),
+        ));
+        $maxBodyBytes = (int) config('attachments.max_body_bytes');
+        $declaredBytes = 0;
 
-        if ($structure->type === 0) {
-            $content = imap_fetchbody($this->connection, $emailNumber, '1', FT_PEEK);
-            $content = $this->decodeContent($content, $structure->encoding);
+        foreach ($bodyParts as $descriptor) {
+            $size = filter_var($descriptor['part']->bytes ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 0],
+            ]);
 
-            if ($structure->subtype === 'PLAIN') {
-                $body['text'] = $content;
-            } else {
-                $body['html'] = $content;
+            if ($size === false || $size > $maxBodyBytes - $declaredBytes) {
+                return $this->omittedBody();
             }
-        } elseif ($structure->type === 1) {
-            foreach ($structure->parts as $index => $part) {
-                if ($this->isAttachmentPart($part)) {
-                    continue;
+
+            $declaredBytes += $size;
+        }
+
+        $actualBytes = 0;
+
+        try {
+            foreach ($bodyParts as $descriptor) {
+                $part = $descriptor['part'];
+                $content = $this->fetchPartContent(
+                    $emailNumber,
+                    $descriptor['section'],
+                    (int) ($part->encoding ?? 0),
+                );
+
+                if (strlen($content) > $maxBodyBytes - $actualBytes) {
+                    return $this->omittedBody();
                 }
 
-                $section = (string) ($index + 1);
-                $content = imap_fetchbody($this->connection, $emailNumber, $section, FT_PEEK);
-                $content = $this->decodeContent($content, $part->encoding);
+                $actualBytes += strlen($content);
 
-                if ($part->subtype === 'PLAIN') {
+                if (strtoupper((string) ($part->subtype ?? '')) === 'PLAIN') {
                     $body['text'] = $content;
-                } elseif ($part->subtype === 'HTML') {
+                } else {
                     $body['html'] = $content;
                 }
             }
+        } catch (AttachmentRejected) {
+            return $this->omittedBody();
         }
 
         return $body;
+    }
+
+    /** @return array{text: string, html: null} */
+    private function omittedBody(): array
+    {
+        return [
+            'text' => '[Inbound message body omitted because it exceeded the configured safety limit.]',
+            'html' => null,
+        ];
     }
 
     private function decodeContent(string $content, int $encoding): string
@@ -240,31 +272,20 @@ class ImapConnector implements InboundEmailConnector
     }
 
     /**
+     * @param  list<array{part: object, section: string}>  $parts
      * @return array{attachments: list<array{filename: string, content: string, mime_type: string, size: int}>, rejection: ?array{reason_code: string, reported_count: int, reported_bytes: int}}
      */
-    private function getAttachments(int $emailNumber, object $structure): array
+    private function getAttachments(int $emailNumber, array $parts): array
     {
         $descriptors = [];
 
-        if (! isset($structure->parts)) {
-            return ['attachments' => [], 'rejection' => null];
-        }
+        foreach ($parts as $partDescriptor) {
+            $part = $partDescriptor['part'];
 
-        foreach ($structure->parts as $index => $part) {
-            if ($this->isAttachmentPart($part)) {
-                $filename = 'unnamed';
-                if ($part->ifdparameters) {
-                    foreach ($part->dparameters as $param) {
-                        if (strtolower($param->attribute) === 'filename') {
-                            $filename = $param->value;
-                            break;
-                        }
-                    }
-                }
-
+            if (! $this->isBodyPart($part)) {
                 $descriptors[] = [
-                    'section' => (string) ($index + 1),
-                    'filename' => $filename,
+                    'section' => $partDescriptor['section'],
+                    'filename' => $this->attachmentFilename($part, $partDescriptor['section']),
                     'mime_type' => $this->getMimeType($part),
                     'encoding' => (int) ($part->encoding ?? 0),
                     'size' => $part->bytes ?? null,
@@ -286,8 +307,11 @@ class ImapConnector implements InboundEmailConnector
 
         try {
             foreach ($descriptors as $descriptor) {
-                $content = imap_fetchbody($this->connection, $emailNumber, $descriptor['section'], FT_PEEK);
-                $content = $this->decodeContent($content, (int) $descriptor['encoding']);
+                $content = $this->fetchPartContent(
+                    $emailNumber,
+                    $descriptor['section'],
+                    (int) $descriptor['encoding'],
+                );
                 $this->attachmentPolicy->assertContent($content, $actualBytes);
 
                 $attachments[] = [
@@ -307,10 +331,86 @@ class ImapConnector implements InboundEmailConnector
         return ['attachments' => $attachments, 'rejection' => null];
     }
 
-    private function isAttachmentPart(object $part): bool
+    private function fetchPartContent(int $emailNumber, string $section, int $encoding): string
     {
-        return (bool) ($part->ifdisposition ?? false)
-            && strtolower((string) ($part->disposition ?? '')) === 'attachment';
+        $content = imap_fetchbody($this->connection, $emailNumber, $section, FT_PEEK);
+
+        if (! is_string($content)) {
+            throw new \RuntimeException('IMAP message part fetch failed.');
+        }
+
+        return $this->decodeContent($content, $encoding);
+    }
+
+    /**
+     * Flatten every MIME leaf so nested and inline binary parts cannot bypass
+     * attachment admission by hiding outside the top-level part list.
+     *
+     * @return list<array{part: object, section: string}>
+     */
+    private function leafParts(object $part, string $section = ''): array
+    {
+        if (isset($part->parts) && is_array($part->parts) && $part->parts !== []) {
+            $leaves = [];
+
+            foreach ($part->parts as $index => $child) {
+                $childSection = $section === ''
+                    ? (string) ($index + 1)
+                    : $section.'.'.($index + 1);
+                array_push($leaves, ...$this->leafParts($child, $childSection));
+            }
+
+            return $leaves;
+        }
+
+        return [[
+            'part' => $part,
+            'section' => $section === '' ? '1' : $section,
+        ]];
+    }
+
+    private function isBodyPart(object $part): bool
+    {
+        $subtype = strtoupper((string) ($part->subtype ?? ''));
+        $disposition = strtolower((string) ($part->disposition ?? ''));
+
+        return (int) ($part->type ?? -1) === 0
+            && in_array($subtype, ['PLAIN', 'HTML'], true)
+            && $disposition !== 'attachment'
+            && $this->partParameter($part, ['filename', 'name']) === null;
+    }
+
+    private function attachmentFilename(object $part, string $section): string
+    {
+        $filename = $this->partParameter($part, ['filename', 'name']);
+
+        if ($filename !== null && trim($filename) !== '') {
+            return $filename;
+        }
+
+        $subtype = strtolower(preg_replace('/[^a-z0-9]+/i', '', (string) ($part->subtype ?? 'bin')) ?: 'bin');
+
+        return 'inline-'.str_replace('.', '-', $section).'.'.$subtype;
+    }
+
+    /** @param list<string> $attributes */
+    private function partParameter(object $part, array $attributes): ?string
+    {
+        foreach (['dparameters', 'parameters'] as $parameterProperty) {
+            $parameters = $part->{$parameterProperty} ?? [];
+
+            if (! is_array($parameters)) {
+                continue;
+            }
+
+            foreach ($parameters as $parameter) {
+                if (in_array(strtolower((string) ($parameter->attribute ?? '')), $attributes, true)) {
+                    return (string) ($parameter->value ?? '');
+                }
+            }
+        }
+
+        return null;
     }
 
     private function decodeBase64(string $content): string
@@ -329,7 +429,7 @@ class ImapConnector implements InboundEmailConnector
         $types = [0 => 'text', 1 => 'multipart', 2 => 'message', 3 => 'application', 4 => 'audio', 5 => 'image', 6 => 'video', 7 => 'other'];
         $type = $types[$part->type] ?? 'application';
 
-        return $type.'/'.strtolower($part->subtype);
+        return $type.'/'.strtolower((string) ($part->subtype ?? 'octet-stream'));
     }
 
     private function extractHeader(string $rawHeader, string $headerName): ?string

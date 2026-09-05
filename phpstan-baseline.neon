@@ -595,12 +595,6 @@ parameters:
 			path: app/Services/Email/ImapConnector.php
 
 		-
-			message: '#^Method App\\Services\\Email\\ImapConnector\:\:getBody\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/Email/ImapConnector.php
-
-		-
 			message: '#^Method App\\Services\\Email\\ImapConnector\:\:parseEmail\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1

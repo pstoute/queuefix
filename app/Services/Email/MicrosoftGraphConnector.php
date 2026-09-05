@@ -6,6 +6,7 @@ use App\Exceptions\AttachmentRejected;
 use App\Models\Mailbox;
 use App\Services\Attachments\InboundAttachmentPolicy;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use UnexpectedValueException;
@@ -255,7 +256,7 @@ class MicrosoftGraphConnector implements InboundEmailConnector
                     'id' => (string) ($att['id'] ?? ''),
                     'filename' => $att['name'],
                     'mime_type' => $att['contentType'] ?? 'application/octet-stream',
-                    'size' => $att['size'] ?? 0,
+                    'size' => $att['size'] ?? null,
                 ];
             }
         }
@@ -285,7 +286,7 @@ class MicrosoftGraphConnector implements InboundEmailConnector
                 }
 
                 $encodedAttachmentId = rawurlencode($attachmentId);
-                $contentResponse = $this->client()->get(
+                $contentResponse = $this->client()->withOptions(['stream' => true])->get(
                     "{$this->baseUrl}/me/messages/{$encodedMessageId}/attachments/{$encodedAttachmentId}/\$value",
                 );
 
@@ -293,8 +294,7 @@ class MicrosoftGraphConnector implements InboundEmailConnector
                     throw new \RuntimeException('Microsoft Graph attachment content fetch failed.');
                 }
 
-                $content = $contentResponse->body();
-                $this->attachmentPolicy->assertContent($content, $actualBytes);
+                $content = $this->readBoundedContent($contentResponse, $actualBytes);
                 $attachments[] = [
                     'filename' => (string) $descriptor['filename'],
                     'content' => $content,
@@ -310,6 +310,29 @@ class MicrosoftGraphConnector implements InboundEmailConnector
         }
 
         return ['attachments' => $attachments, 'rejection' => null];
+    }
+
+    private function readBoundedContent(Response $response, int &$actualBytes): string
+    {
+        $remainingMessageBytes = max(0, (int) config('attachments.max_message_bytes') - $actualBytes);
+        $readLimit = min((int) config('attachments.max_file_bytes'), $remainingMessageBytes);
+        $stream = $response->toPsrResponse()->getBody();
+        $content = '';
+
+        while (! $stream->eof() && strlen($content) <= $readLimit) {
+            $bytesToRead = min(8192, $readLimit + 1 - strlen($content));
+            $chunk = $stream->read($bytesToRead);
+
+            if ($chunk === '') {
+                throw new \RuntimeException('Microsoft Graph attachment stream stopped before completion.');
+            }
+
+            $content .= $chunk;
+        }
+
+        $this->attachmentPolicy->assertContent($content, $actualBytes);
+
+        return $content;
     }
 
     public function sendEmail(array $data): bool
