@@ -18,6 +18,7 @@ use App\Services\TicketMentionService;
 use App\Services\TicketMergeService;
 use App\Services\TicketReadStateService;
 use App\Services\TicketService;
+use App\Services\TicketSplitService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +36,7 @@ class TicketController extends Controller
         private TicketMentionService $mentionService,
         private TicketCcService $ccService,
         private TicketMergeService $mergeService,
+        private TicketSplitService $splitService,
     ) {}
 
     public function index(Request $request): Response
@@ -154,6 +156,8 @@ class TicketController extends Controller
             },
             'mergeEvents.actor:id,name',
             'mergeEvents.counterpartTicket:id,ticket_number',
+            'splitEvents.actor:id,name',
+            'splitEvents.counterpartTicket:id,ticket_number',
         ]);
 
         /** @var Message|null $latestMessage */
@@ -180,6 +184,7 @@ class TicketController extends Controller
                 ->filter(fn (User $candidate): bool => Gate::forUser($candidate)->allows('view', $ticket))
                 ->values(),
             'canMerge' => Gate::forUser($user)->allows('merge', $ticket),
+            'canSplit' => Gate::forUser($user)->allows('split', $ticket),
             'mergeCandidates' => Gate::forUser($user)->allows('merge', $ticket)
                 ? Ticket::query()
                     ->whereKeyNot($ticket->id)
@@ -331,5 +336,28 @@ class TicketController extends Controller
 
         return redirect()->route('agent.tickets.show', $target)
             ->with('success', "Ticket {$source->ticket_number} merged into this ticket.");
+    }
+
+    public function split(Request $request, Ticket $ticket): RedirectResponse
+    {
+        Gate::authorize('split', $ticket);
+
+        $validated = $request->validate([
+            'subject' => ['required', 'string', 'max:255'],
+            'message_ids' => ['required', 'array', 'min:1'],
+            'message_ids.*' => ['required', 'uuid', 'distinct', 'exists:messages,id'],
+        ]);
+
+        /** @var User $actor */
+        $actor = $request->user();
+        $newTicket = $this->splitService->split(
+            $ticket,
+            $validated['message_ids'],
+            $validated['subject'],
+            $actor,
+        );
+
+        return redirect()->route('agent.tickets.show', $newTicket)
+            ->with('success', "Selected messages were split from {$ticket->ticket_number} into this ticket.");
     }
 }

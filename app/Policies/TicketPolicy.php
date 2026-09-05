@@ -43,4 +43,9 @@ class TicketPolicy
     {
         return $user instanceof User && $user->is_active;
     }
+
+    public function split(User|Customer $user, Ticket $ticket): bool
+    {
+        return $user instanceof User && $user->is_active && ! $ticket->isMerged();
+    }
 }

@@ -1,10 +1,11 @@
 import { Head, router, useForm } from '@inertiajs/react';
-import { Message, PageProps, Ticket, TicketMergeEvent, User, TicketStatus, TicketPriority } from '@/types';
+import { Message, PageProps, Ticket, TicketMergeEvent, TicketSplitEvent, User, TicketStatus, TicketPriority } from '@/types';
 import AgentLayout from '@/Layouts/AgentLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Button } from '@/Components/ui/button';
 import { Badge } from '@/Components/ui/badge';
 import { Textarea } from '@/Components/ui/textarea';
+import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/Components/ui/avatar';
 import { Separator } from '@/Components/ui/separator';
@@ -44,6 +45,7 @@ import {
   EyeOff,
   Star,
   GitMerge,
+  Scissors,
 } from 'lucide-react';
 
 interface TicketShowProps extends PageProps {
@@ -53,6 +55,7 @@ interface TicketShowProps extends PageProps {
   priorities: { value: TicketPriority; label: string }[];
   mentionableUsers: Array<Pick<User, 'id' | 'name' | 'handle' | 'avatar'>>;
   canMerge: boolean;
+  canSplit: boolean;
   mergeCandidates: Array<Pick<Ticket, 'id' | 'ticket_number' | 'subject'>>;
 }
 
@@ -70,6 +73,7 @@ export default function TicketShow({
   priorities,
   mentionableUsers,
   canMerge,
+  canSplit,
   mergeCandidates,
   auth,
 }: TicketShowProps) {
@@ -79,6 +83,8 @@ export default function TicketShow({
   const [editingBody, setEditingBody] = useState('');
   const [ccInput, setCcInput] = useState('');
   const [mergeTicketId, setMergeTicketId] = useState('');
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [splitSubject, setSplitSubject] = useState('');
 
   const { data, setData, post, processing, reset } = useForm({
     body: '',
@@ -144,6 +150,26 @@ export default function TicketShow({
     router.post(`/agent/tickets/${ticket.id}/merge`, { merge_ticket_id: source.id }, {
       preserveScroll: true,
       onSuccess: () => setMergeTicketId(''),
+    });
+  };
+
+  const toggleSplitMessage = (messageId: string) => {
+    setSelectedMessageIds((current) => current.includes(messageId)
+      ? current.filter((id) => id !== messageId)
+      : [...current, messageId]);
+  };
+
+  const handleSplit = () => {
+    const subject = splitSubject.trim();
+    if (!subject || selectedMessageIds.length === 0) return;
+
+    if (!window.confirm(`Move ${selectedMessageIds.length} selected message${selectedMessageIds.length === 1 ? '' : 's'} into a new ticket?`)) {
+      return;
+    }
+
+    router.post(`/agent/tickets/${ticket.id}/split`, {
+      subject,
+      message_ids: selectedMessageIds,
     });
   };
 
@@ -269,6 +295,12 @@ export default function TicketShow({
       occurredAt: event.occurred_at,
       event,
     })),
+    ...(ticket.split_events || []).map((event: TicketSplitEvent) => ({
+      kind: 'split' as const,
+      id: event.id,
+      occurredAt: event.occurred_at,
+      event,
+    })),
   ].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id));
 
   return (
@@ -348,6 +380,46 @@ export default function TicketShow({
                                 <p className="text-xs text-muted-foreground">
                                   {event.actor?.name || 'Former staff member'} · {formatDateTime(event.occurred_at)}
                                 </p>
+                                {event.counterpart_ticket && (
+                                  <a
+                                    href={`/agent/tickets/${event.counterpart_ticket.id}`}
+                                    className="text-xs font-medium text-primary hover:underline"
+                                  >
+                                    Open #{event.counterpart_ticket.ticket_number}
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        if (entry.kind === 'split') {
+                          const event = entry.event;
+                          const counterpart = event.counterpart_ticket?.ticket_number || 'unknown';
+                          const messageLabel = `${event.message_count} message${event.message_count === 1 ? '' : 's'}`;
+                          const description = event.event_type === 'source_split'
+                            ? `${messageLabel} split into ticket #${counterpart}.`
+                            : `Created from ${messageLabel} in ticket #${counterpart}.`;
+
+                          return (
+                            <div
+                              key={event.id}
+                              className="flex items-start gap-3 rounded-lg border border-dashed bg-muted/40 p-4"
+                            >
+                              <Scissors className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                              <div>
+                                <p className="text-sm font-medium">{description}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {event.actor?.name || 'Former staff member'} · {formatDateTime(event.occurred_at)}
+                                </p>
+                                {event.counterpart_ticket && (
+                                  <a
+                                    href={`/agent/tickets/${event.counterpart_ticket.id}`}
+                                    className="text-xs font-medium text-primary hover:underline"
+                                  >
+                                    Open #{event.counterpart_ticket.ticket_number}
+                                  </a>
+                                )}
                               </div>
                             </div>
                           );
@@ -364,6 +436,7 @@ export default function TicketShow({
                             id={`message-${message.id}`}
                             className={cn(
                               'rounded-lg p-4',
+                              selectedMessageIds.includes(message.id) && 'ring-2 ring-primary',
                               isInternal
                                 ? 'bg-amber-50 dark:bg-amber-950 border-2 border-amber-200 dark:border-amber-800'
                                 : isCustomer
@@ -373,6 +446,17 @@ export default function TicketShow({
                           >
                             {/* Message header */}
                             <div className="flex items-start gap-3 mb-3">
+                              {canSplit && (
+                                <label className="flex min-h-8 items-center" title="Select message to split">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedMessageIds.includes(message.id)}
+                                    onChange={() => toggleSplitMessage(message.id)}
+                                    className="h-4 w-4 rounded border-input accent-primary"
+                                    aria-label={`Select message from ${formatDateTime(message.created_at)} to split`}
+                                  />
+                                </label>
+                              )}
                               <Avatar className="h-8 w-8">
                                 <AvatarImage src={sender?.avatar} alt={sender?.name} />
                                 <AvatarFallback>
@@ -836,6 +920,39 @@ export default function TicketShow({
                       ) : (
                         <p className="text-sm text-muted-foreground">No eligible tickets for this customer.</p>
                       )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {canSplit && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Scissors className="h-4 w-4" />
+                        Split conversation
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        Select messages in the timeline, then move them and their attachments into a new ticket. Internal notes remain staff-only.
+                      </p>
+                      <Label htmlFor="split-subject">New ticket subject</Label>
+                      <Input
+                        id="split-subject"
+                        value={splitSubject}
+                        onChange={(event) => setSplitSubject(event.target.value)}
+                        maxLength={255}
+                        placeholder="Describe the new conversation"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        disabled={!splitSubject.trim() || selectedMessageIds.length === 0}
+                        onClick={handleSplit}
+                      >
+                        Split {selectedMessageIds.length || 'selected'} message{selectedMessageIds.length === 1 ? '' : 's'}
+                      </Button>
                     </CardContent>
                   </Card>
                 )}

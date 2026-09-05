@@ -106,6 +106,7 @@ export interface Ticket {
     merged_at?: string | null;
     merged_by?: string | null;
     merge_events?: TicketMergeEvent[];
+    split_events?: TicketSplitEvent[];
 }
 
 export interface TicketMergeEvent {
@@ -114,6 +115,18 @@ export interface TicketMergeEvent {
     counterpart_ticket_id: string;
     actor_id?: string | null;
     event_type: 'source_merged' | 'target_received';
+    occurred_at: string;
+    actor?: Pick<User, 'id' | 'name'> | null;
+    counterpart_ticket?: Pick<Ticket, 'id' | 'ticket_number'>;
+}
+
+export interface TicketSplitEvent {
+    id: string;
+    ticket_id: string;
+    counterpart_ticket_id: string;
+    actor_id?: string | null;
+    event_type: 'source_split' | 'new_ticket_created';
+    message_count: number;
     occurred_at: string;
     actor?: Pick<User, 'id' | 'name'> | null;
     counterpart_ticket?: Pick<Ticket, 'id' | 'ticket_number'>;

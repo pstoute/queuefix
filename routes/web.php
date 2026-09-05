@@ -66,6 +66,7 @@ Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(
     Route::patch('tickets/{ticket}/priority', [TicketController::class, 'updatePriority'])->name('tickets.priority');
     Route::patch('tickets/{ticket}/assign', [TicketController::class, 'assign'])->name('tickets.assign');
     Route::post('tickets/{ticket}/merge', [TicketController::class, 'merge'])->name('tickets.merge');
+    Route::post('tickets/{ticket}/split', [TicketController::class, 'split'])->name('tickets.split');
     Route::post('tickets/{ticket}/watch', [TicketWatcherController::class, 'store'])->name('tickets.watch.store');
     Route::delete('tickets/{ticket}/watch', [TicketWatcherController::class, 'destroy'])->name('tickets.watch.destroy');
     Route::patch('tickets/{ticket}/read', TicketReadStateController::class)->name('tickets.read');

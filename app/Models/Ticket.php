@@ -234,6 +234,12 @@ class Ticket extends Model
         return $this->hasMany(TicketMergeEvent::class)->orderBy('occurred_at')->orderBy('id');
     }
 
+    /** @return HasMany<TicketSplitEvent, $this> */
+    public function splitEvents(): HasMany
+    {
+        return $this->hasMany(TicketSplitEvent::class)->orderBy('occurred_at')->orderBy('id');
+    }
+
     public function isMerged(): bool
     {
         return $this->merged_into_ticket_id !== null;
