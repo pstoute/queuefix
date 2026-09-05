@@ -26,7 +26,10 @@ test('migration assigns normalized unique handles to existing users', function (
 
     $migration->up();
 
-    expect(DB::table('users')->where('email', 'jane@example.com')->value('handle'))->toBe('jane-doe')
-        ->and(DB::table('users')->where('email', 'jane-two@example.com')->value('handle'))->toBe('jane-doe-2')
+    expect(DB::table('users')
+        ->whereIn('email', ['jane@example.com', 'jane-two@example.com'])
+        ->orderBy('handle')
+        ->pluck('handle')
+        ->all())->toBe(['jane-doe', 'jane-doe-2'])
         ->and(DB::table('users')->where('email', 'fallback@example.com')->value('handle'))->toBe('user');
 });
