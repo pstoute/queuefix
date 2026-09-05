@@ -36,8 +36,9 @@ Thank you for your interest in contributing to QueueFix! This document provides 
 
 5. Set up the database:
    ```bash
+   # Set QUEUEFIX_DEMO_MODE=true in .env for the development fixture dataset.
    php artisan migrate
-   php artisan db:seed
+   php artisan db:seed --class=DemoSeeder
    ```
 
 6. Start the development servers:

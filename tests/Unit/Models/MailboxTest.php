@@ -2,7 +2,7 @@
 
 use App\Enums\MailboxType;
 use App\Models\Mailbox;
-use Database\Seeders\DatabaseSeeder;
+use Database\Seeders\DemoSeeder;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Facades\DB;
 
@@ -110,7 +110,9 @@ test('mailbox credential helpers reject decrypted payloads that are not arrays',
 })->throws(UnexpectedValueException::class, 'Mailbox credentials must decrypt to an array.');
 
 test('the demo mailbox seeder creates usable encrypted credentials', function () {
-    $this->seed(DatabaseSeeder::class);
+    config(['demo.enabled' => true]);
+
+    $this->seed(DemoSeeder::class);
 
     $mailbox = Mailbox::query()->where('email', 'support@example.com')->firstOrFail();
     $storedCredentials = DB::table('mailboxes')->where('id', $mailbox->id)->value('credentials');
