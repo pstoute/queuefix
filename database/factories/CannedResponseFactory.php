@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\CannedResponse;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -15,6 +16,8 @@ class CannedResponseFactory extends Factory
         return [
             'title' => fake()->sentence(),
             'body' => fake()->paragraph(),
+            'is_active' => true,
+            'visibility' => CannedResponse::VISIBILITY_ALL_AGENTS,
             'created_by' => User::factory(),
         ];
     }

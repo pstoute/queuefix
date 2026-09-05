@@ -20,6 +20,7 @@ class Message extends Model
      */
     protected $fillable = [
         'ticket_id',
+        'original_ticket_id',
         'sender_type',
         'sender_id',
         'type',
@@ -42,10 +43,18 @@ class Message extends Model
 
     /**
      * Get the ticket that owns the message.
+     *
+     * @return BelongsTo<Ticket, $this>
      */
     public function ticket(): BelongsTo
     {
         return $this->belongsTo(Ticket::class);
+    }
+
+    /** @return BelongsTo<Ticket, $this> */
+    public function originalTicket(): BelongsTo
+    {
+        return $this->belongsTo(Ticket::class, 'original_ticket_id');
     }
 
     /**
@@ -62,5 +71,17 @@ class Message extends Model
     public function attachments(): HasMany
     {
         return $this->hasMany(Attachment::class);
+    }
+
+    /** @return HasMany<TicketMention, $this> */
+    public function mentions(): HasMany
+    {
+        return $this->hasMany(TicketMention::class);
+    }
+
+    /** @return HasMany<MessageCcRecipient, $this> */
+    public function ccRecipients(): HasMany
+    {
+        return $this->hasMany(MessageCcRecipient::class);
     }
 }

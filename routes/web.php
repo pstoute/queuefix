@@ -3,17 +3,25 @@
 use App\Http\Controllers\Agent\CannedResponseController;
 use App\Http\Controllers\Agent\DashboardController;
 use App\Http\Controllers\Agent\TagController;
+use App\Http\Controllers\Agent\TicketCcRecipientController;
 use App\Http\Controllers\Agent\TicketController;
+use App\Http\Controllers\Agent\TicketMessageController;
+use App\Http\Controllers\Agent\TicketReadStateController;
+use App\Http\Controllers\Agent\TicketWatcherController;
 use App\Http\Controllers\Auth\MagicLinkController;
 use App\Http\Controllers\Auth\SocialiteController;
 use App\Http\Controllers\Customer\CustomerAuthController;
 use App\Http\Controllers\Customer\CustomerTicketController;
+use App\Http\Controllers\Customer\CustomerTicketRatingController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Settings\AppearanceController;
 use App\Http\Controllers\Settings\DepartmentController;
+use App\Http\Controllers\Settings\EscalationRuleController;
 use App\Http\Controllers\Settings\GeneralSettingsController;
 use App\Http\Controllers\Settings\MailboxController;
 use App\Http\Controllers\Settings\SlaController;
+use App\Http\Controllers\Settings\SupportReportController;
+use App\Http\Controllers\Settings\TicketStatusController;
 use App\Http\Controllers\Settings\UpdateCheckController;
 use App\Http\Controllers\Settings\UserManagementController;
 use App\Http\Controllers\VersionController;
@@ -59,6 +67,15 @@ Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(
     Route::patch('tickets/{ticket}/priority', [TicketController::class, 'updatePriority'])->name('tickets.priority');
     Route::patch('tickets/{ticket}/assign', [TicketController::class, 'assign'])->name('tickets.assign');
     Route::post('tickets/{ticket}/merge', [TicketController::class, 'merge'])->name('tickets.merge');
+    Route::post('tickets/{ticket}/split', [TicketController::class, 'split'])->name('tickets.split');
+    Route::post('tickets/{ticket}/watch', [TicketWatcherController::class, 'store'])->name('tickets.watch.store');
+    Route::delete('tickets/{ticket}/watch', [TicketWatcherController::class, 'destroy'])->name('tickets.watch.destroy');
+    Route::patch('tickets/{ticket}/read', TicketReadStateController::class)->name('tickets.read');
+    Route::get('tickets/{ticket}/canned-responses', [CannedResponseController::class, 'search'])->name('tickets.canned-responses.index');
+    Route::post('tickets/{ticket}/canned-responses/{cannedResponse}/render', [CannedResponseController::class, 'render'])->name('tickets.canned-responses.render');
+    Route::delete('tickets/{ticket}/cc-recipients/{ccRecipient}', [TicketCcRecipientController::class, 'destroy'])->name('tickets.cc-recipients.destroy');
+    Route::get('tickets/{ticket}/messages/{message}', [TicketMessageController::class, 'show'])->name('tickets.messages.show');
+    Route::patch('tickets/{ticket}/messages/{message}/internal-note', [TicketMessageController::class, 'update'])->name('tickets.messages.internal-note.update');
 
     // Tags
     Route::get('tags', [TagController::class, 'index'])->name('tags.index');
@@ -71,7 +88,6 @@ Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(
     Route::post('canned-responses', [CannedResponseController::class, 'store'])->name('canned-responses.store');
     Route::put('canned-responses/{cannedResponse}', [CannedResponseController::class, 'update'])->name('canned-responses.update');
     Route::delete('canned-responses/{cannedResponse}', [CannedResponseController::class, 'destroy'])->name('canned-responses.destroy');
-    Route::get('canned-responses/{cannedResponse}/render', [CannedResponseController::class, 'render'])->name('canned-responses.render');
 });
 
 // Settings (admin only)
@@ -81,6 +97,15 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('sett
 
     Route::get('updates', [UpdateCheckController::class, 'index'])->name('updates.index');
 
+    Route::get('reports', [SupportReportController::class, 'index'])->name('reports.index');
+    Route::get('reports/export', [SupportReportController::class, 'export'])->name('reports.export');
+
+    Route::get('escalations', [EscalationRuleController::class, 'index'])->name('escalations.index');
+    Route::post('escalations', [EscalationRuleController::class, 'store'])->name('escalations.store');
+    Route::put('escalations/{escalationRule}', [EscalationRuleController::class, 'update'])->name('escalations.update');
+    Route::post('escalations/{escalationRule}/preview', [EscalationRuleController::class, 'preview'])->name('escalations.preview');
+    Route::patch('escalations/{escalationRule}/active', [EscalationRuleController::class, 'setActive'])->name('escalations.active');
+
     Route::get('appearance', [AppearanceController::class, 'index'])->name('appearance.index');
     Route::put('appearance', [AppearanceController::class, 'update'])->name('appearance.update');
 
@@ -89,8 +114,17 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('sett
     Route::put('departments/{department}', [DepartmentController::class, 'update'])->name('departments.update');
     Route::delete('departments/{department}', [DepartmentController::class, 'destroy'])->name('departments.destroy');
 
+    Route::get('statuses', [TicketStatusController::class, 'index'])->name('statuses.index');
+    Route::post('statuses', [TicketStatusController::class, 'store'])->name('statuses.store');
+    Route::put('statuses/{ticketStatus}', [TicketStatusController::class, 'update'])->name('statuses.update');
+    Route::delete('statuses/{ticketStatus}', [TicketStatusController::class, 'destroy'])->name('statuses.destroy');
+    Route::patch('statuses/{ticketStatus}/restore', [TicketStatusController::class, 'restore'])
+        ->withTrashed()
+        ->name('statuses.restore');
+
     Route::resource('mailboxes', MailboxController::class)->except(['show']);
-    Route::post('mailboxes/{mailbox}/test', [MailboxController::class, 'test'])->name('mailboxes.test');
+    Route::post('mailboxes/{mailbox}/test', [MailboxController::class, 'test'])->middleware('throttle:6,1')->name('mailboxes.test');
+    Route::post('mailboxes/{mailbox}/fetch', [MailboxController::class, 'fetchNow'])->middleware('throttle:12,1')->name('mailboxes.fetch');
 
     Route::get('sla', [SlaController::class, 'index'])->name('sla.index');
     Route::post('sla', [SlaController::class, 'store'])->name('sla.store');
@@ -102,9 +136,9 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('sett
     Route::put('users/{user}', [UserManagementController::class, 'update'])->name('users.update');
 
     Route::get('canned-responses', [CannedResponseController::class, 'index'])->name('canned-responses.index');
-    Route::post('canned-responses', [CannedResponseController::class, 'store'])->name('settings.canned-responses.store');
-    Route::put('canned-responses/{cannedResponse}', [CannedResponseController::class, 'update'])->name('settings.canned-responses.update');
-    Route::delete('canned-responses/{cannedResponse}', [CannedResponseController::class, 'destroy'])->name('settings.canned-responses.destroy');
+    Route::post('canned-responses', [CannedResponseController::class, 'store'])->name('canned-responses.store');
+    Route::put('canned-responses/{cannedResponse}', [CannedResponseController::class, 'update'])->name('canned-responses.update');
+    Route::delete('canned-responses/{cannedResponse}', [CannedResponseController::class, 'destroy'])->name('canned-responses.destroy');
 });
 
 // Profile
@@ -129,6 +163,7 @@ Route::prefix('portal')->name('customer.')->group(function () {
         Route::get('tickets', [CustomerTicketController::class, 'index'])->name('tickets.index');
         Route::get('tickets/{ticket}', [CustomerTicketController::class, 'show'])->name('tickets.show');
         Route::post('tickets/{ticket}/reply', [CustomerTicketController::class, 'reply'])->name('tickets.reply');
+        Route::post('tickets/{ticket}/rating', [CustomerTicketRatingController::class, 'store'])->name('tickets.rating.store');
         Route::post('logout', [CustomerAuthController::class, 'logout'])->name('logout');
     });
 });

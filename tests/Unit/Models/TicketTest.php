@@ -1,7 +1,6 @@
 <?php
 
 use App\Enums\TicketPriority;
-use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Mailbox;
 use App\Models\Message;
@@ -9,6 +8,7 @@ use App\Models\Setting;
 use App\Models\SlaTimer;
 use App\Models\Tag;
 use App\Models\Ticket;
+use App\Models\TicketStatus;
 use App\Models\User;
 
 beforeEach(function () {
@@ -119,11 +119,12 @@ test('ticket can sync tags', function () {
     expect($ticket->tags->pluck('id')->toArray())->not->toContain($tag1->id);
 });
 
-test('ticket status is cast correctly', function () {
-    $ticket = Ticket::factory()->create(['status' => TicketStatus::Open]);
+test('ticket belongs to a configurable status', function () {
+    $status = $this->ticketStatusAt(20);
+    $ticket = Ticket::factory()->create(['ticket_status_id' => $status->id]);
 
     expect($ticket->status)->toBeInstanceOf(TicketStatus::class);
-    expect($ticket->status)->toBe(TicketStatus::Open);
+    expect($ticket->status->is($status))->toBeTrue();
 });
 
 test('ticket priority is cast correctly', function () {
@@ -143,7 +144,7 @@ test('ticket has fillable attributes', function () {
     $data = [
         'ticket_number' => 'QF-999',
         'subject' => 'Test Subject',
-        'status' => TicketStatus::Open,
+        'ticket_status_id' => TicketStatus::defaultStatus()->id,
         'priority' => TicketPriority::High,
         'customer_id' => Customer::factory()->create()->id,
         'assigned_to' => User::factory()->create()->id,
@@ -155,7 +156,7 @@ test('ticket has fillable attributes', function () {
 
     expect($ticket->ticket_number)->toBe('QF-999');
     expect($ticket->subject)->toBe('Test Subject');
-    expect($ticket->status)->toBe(TicketStatus::Open);
+    expect($ticket->status->is_default)->toBeTrue();
     expect($ticket->priority)->toBe(TicketPriority::High);
 });
 
@@ -194,10 +195,12 @@ test('deleting ticket with messages', function () {
 });
 
 test('ticket can be queried by status', function () {
-    Ticket::factory()->count(3)->create(['status' => TicketStatus::Open]);
-    Ticket::factory()->count(2)->create(['status' => TicketStatus::Resolved]);
+    $open = TicketStatus::defaultStatus();
+    $resolved = $this->ticketStatusAt(40);
+    Ticket::factory()->count(3)->create(['ticket_status_id' => $open->id]);
+    Ticket::factory()->count(2)->create(['ticket_status_id' => $resolved->id]);
 
-    $openTickets = Ticket::where('status', TicketStatus::Open)->get();
+    $openTickets = Ticket::where('ticket_status_id', $open->id)->get();
 
     expect($openTickets)->toHaveCount(3);
 });

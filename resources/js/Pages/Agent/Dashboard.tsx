@@ -1,5 +1,5 @@
 import { Head, Link } from '@inertiajs/react';
-import { PageProps, Ticket } from '@/types';
+import { PageProps, Ticket, TicketStatus } from '@/types';
 import AgentLayout from '@/Layouts/AgentLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Badge } from '@/Components/ui/badge';
@@ -7,58 +7,20 @@ import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/lib/hooks';
 import {
   Inbox,
-  Clock,
-  Pause,
-  CheckCircle,
   UserX,
   AlertTriangle,
 } from 'lucide-react';
 
 interface DashboardProps extends PageProps {
   stats: {
-    open: number;
-    pending: number;
-    on_hold: number;
-    resolved_today: number;
     unassigned: number;
     sla_breached: number;
   };
+  statusCounts: TicketStatus[];
   recentTickets: Ticket[];
 }
 
 const statCards = [
-  {
-    key: 'open',
-    label: 'Open Tickets',
-    icon: Inbox,
-    color: 'text-green-600 dark:text-green-400',
-    bgColor: 'bg-green-100 dark:bg-green-950',
-    href: '/agent/tickets?status=open',
-  },
-  {
-    key: 'pending',
-    label: 'Pending',
-    icon: Clock,
-    color: 'text-amber-600 dark:text-amber-400',
-    bgColor: 'bg-amber-100 dark:bg-amber-950',
-    href: '/agent/tickets?status=pending',
-  },
-  {
-    key: 'on_hold',
-    label: 'On Hold',
-    icon: Pause,
-    color: 'text-gray-600 dark:text-gray-400',
-    bgColor: 'bg-gray-100 dark:bg-gray-800',
-    href: '/agent/tickets?status=on_hold',
-  },
-  {
-    key: 'resolved_today',
-    label: 'Resolved Today',
-    icon: CheckCircle,
-    color: 'text-blue-600 dark:text-blue-400',
-    bgColor: 'bg-blue-100 dark:bg-blue-950',
-    href: '/agent/tickets?status=resolved',
-  },
   {
     key: 'unassigned',
     label: 'Unassigned',
@@ -77,14 +39,6 @@ const statCards = [
   },
 ];
 
-const statusConfig = {
-  open: { label: 'Open', color: 'bg-green-500' },
-  pending: { label: 'Pending', color: 'bg-amber-500' },
-  on_hold: { label: 'On Hold', color: 'bg-gray-500' },
-  resolved: { label: 'Resolved', color: 'bg-blue-500' },
-  closed: { label: 'Closed', color: 'bg-gray-500' },
-};
-
 const priorityConfig = {
   low: { label: 'Low', variant: 'secondary' as const },
   normal: { label: 'Normal', variant: 'default' as const },
@@ -92,7 +46,7 @@ const priorityConfig = {
   urgent: { label: 'Urgent', variant: 'destructive' as const },
 };
 
-export default function Dashboard({ stats, recentTickets }: DashboardProps) {
+export default function Dashboard({ stats, statusCounts, recentTickets }: DashboardProps) {
   return (
     <AgentLayout>
       <Head title="Dashboard" />
@@ -108,6 +62,19 @@ export default function Dashboard({ stats, recentTickets }: DashboardProps) {
 
         {/* Stats grid */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {statusCounts.map((status) => (
+            <Link key={status.id} href={`/agent/tickets?status=${encodeURIComponent(status.slug)}`} className="block">
+              <Card className="transition-colors hover:bg-muted/50">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{status.name}</CardTitle>
+                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: status.color }} />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{status.tickets_count || 0}</div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
           {statCards.map((stat) => {
             const Icon = stat.icon;
             const value = stats[stat.key as keyof typeof stats];
@@ -159,10 +126,9 @@ export default function Dashboard({ stats, recentTickets }: DashboardProps) {
                         {/* Status dot */}
                         <div className="flex items-center pt-1">
                           <div
-                            className={cn(
-                              'h-2 w-2 rounded-full',
-                              statusConfig[ticket.status].color
-                            )}
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: ticket.status?.color || '#6b7280' }}
+                            title={ticket.status?.name || 'Unknown status'}
                           />
                         </div>
 

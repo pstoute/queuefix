@@ -6,6 +6,9 @@ import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { Textarea } from '@/Components/ui/textarea';
+import { Switch } from '@/Components/ui/switch';
+import { Badge } from '@/Components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import {
     Dialog,
     DialogContent,
@@ -38,6 +41,8 @@ export default function CannedResponsesIndex({ cannedResponses }: CannedResponse
     const { data, setData, post, put, processing, errors, reset } = useForm({
         title: '',
         body: '',
+        is_active: true,
+        visibility: 'all_agents' as 'all_agents' | 'creator_only',
     });
 
     const openDialog = (response?: CannedResponse) => {
@@ -46,6 +51,8 @@ export default function CannedResponsesIndex({ cannedResponses }: CannedResponse
             setData({
                 title: response.title,
                 body: response.body,
+                is_active: response.is_active,
+                visibility: response.visibility,
             });
         } else {
             setEditingResponse(null);
@@ -135,16 +142,31 @@ export default function CannedResponsesIndex({ cannedResponses }: CannedResponse
                                             id="body"
                                             value={data.body}
                                             onChange={(e) => setData('body', e.target.value)}
-                                            placeholder="Hi {customer_name},&#10;&#10;Thank you for reaching out to us..."
+                                            placeholder="Hi {{customer.name}}, thank you for reaching out..."
                                             rows={10}
                                         />
                                         <p className="text-xs text-muted-foreground">
-                                            Use variables: {'{customer_name}'}, {'{ticket_number}'},
-                                            {'{agent_name}'}
+                                            Allowed placeholders: {'{{customer.name}}'}, {'{{ticket.ticket_number}}'}, {'{{ticket.subject}}'}, {'{{department.name}}'}, {'{{assignee.name}}'}, {'{{current_date}}'}.
                                         </p>
                                         {errors.body && (
                                             <p className="text-sm text-destructive">{errors.body}</p>
                                         )}
+                                    </div>
+                                    <div className="grid gap-4 sm:grid-cols-2">
+                                        <div className="space-y-2">
+                                            <Label htmlFor="response-visibility">Visibility</Label>
+                                            <Select value={data.visibility} onValueChange={(value: 'all_agents' | 'creator_only') => setData('visibility', value)}>
+                                                <SelectTrigger id="response-visibility"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="all_agents">All agents</SelectItem>
+                                                    <SelectItem value="creator_only">Only me</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="flex items-center gap-3 pt-7">
+                                            <Switch id="response-active" checked={data.is_active} onCheckedChange={(checked) => setData('is_active', checked)} />
+                                            <Label htmlFor="response-active">Available in reply picker</Label>
+                                        </div>
                                     </div>
                                 </div>
                                 <DialogFooter>
@@ -214,6 +236,10 @@ export default function CannedResponsesIndex({ cannedResponses }: CannedResponse
                                             <MessageSquare className="h-5 w-5 text-muted-foreground" />
                                             <div className="flex-1">
                                                 <h4 className="font-medium">{response.title}</h4>
+                                                <div className="mt-1 flex gap-2">
+                                                    <Badge variant={response.is_active ? 'default' : 'secondary'}>{response.is_active ? 'Active' : 'Inactive'}</Badge>
+                                                    <Badge variant="outline">{response.visibility === 'all_agents' ? 'All agents' : 'Only creator'}</Badge>
+                                                </div>
                                                 <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                                                     {response.body}
                                                 </p>
