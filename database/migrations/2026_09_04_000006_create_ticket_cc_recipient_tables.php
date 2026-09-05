@@ -15,7 +15,7 @@ return new class extends Migration
             $table->string('display_name')->nullable();
             $table->string('source', 32);
             $table->string('validation_state', 20)->default('approved');
-            $table->nullableMorphs('added_by');
+            $table->nullableUuidMorphs('added_by');
             $table->timestamp('approved_at')->nullable();
             $table->timestamp('removed_at')->nullable();
             $table->json('metadata')->nullable();
@@ -35,7 +35,7 @@ return new class extends Migration
             $table->string('display_name')->nullable();
             $table->string('source', 32);
             $table->string('validation_state', 20)->default('approved');
-            $table->nullableMorphs('created_by');
+            $table->nullableUuidMorphs('created_by');
             $table->timestamp('delivered_at')->nullable();
             $table->json('metadata')->nullable();
             $table->timestamps();
@@ -52,7 +52,7 @@ return new class extends Migration
             $table->uuid('ticket_id');
             $table->uuid('message_id')->nullable();
             $table->uuid('ticket_cc_recipient_id')->nullable();
-            $table->nullableMorphs('actor');
+            $table->nullableUuidMorphs('actor');
             $table->string('event', 40);
             $table->string('email', 254)->nullable();
             $table->json('metadata')->nullable();
