@@ -4,10 +4,11 @@ QueueFix never downloads or replaces application code from the web UI. An admini
 
 ## Before upgrading
 
-1. Confirm the release notes and any migration/configuration requirements.
+1. Confirm the release is marked **Immutable** on GitHub, then review its notes and any migration/configuration requirements.
 2. Confirm the installation is a clean Git clone using this repository's `docker-compose.yml`.
-3. Ensure the host has enough disk space for a PostgreSQL dump.
-4. Save any uncommitted local changes before updating.
+3. Ensure the current `app` service is running so it can validate the release metadata before any local state changes.
+4. Ensure the host has enough disk space for a PostgreSQL dump.
+5. Save any uncommitted local changes before updating.
 
 ## Upgrade one release
 
@@ -17,7 +18,9 @@ From the QueueFix repository directory, run:
 ./deploy/update-docker.sh vX.Y.Z
 ```
 
-The script refuses a dirty Git working tree, verifies that the specified tag exists on `origin`, creates a timestamped PostgreSQL dump in `storage/backups/`, activates Laravel maintenance mode, checks out the exact tag, rebuilds the Compose services, installs locked dependencies, builds frontend assets, runs migrations, and checks `/up`. The backup directory is restricted to the invoking account, completed dumps use mode `0600`, and an incomplete dump is removed before the updater exits.
+The script refuses a dirty Git working tree and verifies that the requested version is a published immutable release in the canonical QueueFix repository. It fetches only that exact canonical tag, captures the commit it resolves to, and later checks out the captured commit rather than trusting a local or mutable tag name. These checks fail before the database backup or maintenance mode if GitHub, the current app service, the release metadata, or the canonical tag is unavailable.
+
+After verifying the release, the script creates a timestamped PostgreSQL dump in `storage/backups/`, activates Laravel maintenance mode, checks out the captured release commit, rebuilds the Compose services, installs locked dependencies, builds frontend assets, runs migrations, and checks `/up`. The backup directory is restricted to the invoking account, completed dumps use mode `0600`, and an incomplete dump is removed before the updater exits.
 
 It never deletes a completed backup or runs a database restore automatically. Each dump contains application-wide sensitive data. Keep it only as long as your retention policy requires, restrict access to the deployment administrators, and use encryption in transit and at rest for any off-host copy. Keep the pre-upgrade backup until the deployment has been smoke-tested.
 
