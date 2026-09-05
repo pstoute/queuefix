@@ -31,6 +31,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->configureSessionCookieSecurity();
+
         if (config('trustedproxy.required') && config('trustedproxy.proxies') === []) {
             throw new LogicException('TRUSTED_PROXIES must contain the immediate reverse proxy when TRUSTED_PROXY_REQUIRED is enabled.');
         }
@@ -57,5 +59,22 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinutes(15, 3)->by('recipient:'.hash('sha256', $recipient)),
             ];
         });
+    }
+
+    private function configureSessionCookieSecurity(): void
+    {
+        $applicationScheme = strtolower((string) parse_url((string) config('app.url'), PHP_URL_SCHEME));
+
+        if ($applicationScheme !== 'https') {
+            return;
+        }
+
+        if (config('session.secure') === false) {
+            throw new LogicException('SESSION_SECURE_COOKIE cannot be false when APP_URL uses HTTPS.');
+        }
+
+        // Promote nullable legacy/config-cached values independently of the
+        // request scheme so TLS termination cannot create an insecure cookie.
+        config(['session.secure' => true]);
     }
 }
