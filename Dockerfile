@@ -17,6 +17,13 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
+# Production PHP dependencies are shared with the frontend build so Tailwind
+# can scan the framework pagination templates declared in tailwind.config.js.
+FROM base AS production-dependencies
+
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-scripts --no-autoloader --optimize-autoloader
+
 # Development stage
 FROM base AS development
 
@@ -64,6 +71,8 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
+COPY --from=production-dependencies /var/www/html/vendor/laravel/framework/src/Illuminate/Pagination/resources/views ./vendor/laravel/framework/src/Illuminate/Pagination/resources/views
+COPY --from=production-dependencies /var/www/html/vendor/tightenco/ziggy ./vendor/tightenco/ziggy
 COPY public ./public
 COPY resources ./resources
 COPY postcss.config.js tailwind.config.js tsconfig.json vite.config.js ./
@@ -76,7 +85,7 @@ ENV APP_ENV=production
 ENV APP_DEBUG=false
 
 COPY composer.json composer.lock ./
-RUN composer install --no-dev --no-scripts --no-autoloader --optimize-autoloader
+COPY --from=production-dependencies /var/www/html/vendor ./vendor
 
 COPY artisan ./
 COPY app ./app
