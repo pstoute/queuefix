@@ -547,12 +547,6 @@ parameters:
 			path: app/Services/Email/EmailProcessorService.php
 
 		-
-			message: '#^Method App\\Services\\Email\\EmailProcessorService\:\:findExistingTicket\(\) should return App\\Models\\Ticket\|null but returns Illuminate\\Database\\Eloquent\\Model\|null\.$#'
-			identifier: return.type
-			count: 2
-			path: app/Services/Email/EmailProcessorService.php
-
-		-
 			message: '#^Method App\\Services\\Email\\EmailProcessorService\:\:findOrCreateCustomer\(\) has parameter \$emailData with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1

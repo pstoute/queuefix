@@ -24,7 +24,7 @@ class EmailProcessorService
     public function processInboundEmail(array $emailData, Mailbox $mailbox): Ticket
     {
         $customer = $this->findOrCreateCustomer($emailData);
-        $existingTicket = $this->findExistingTicket($emailData);
+        $existingTicket = $this->findExistingTicket($emailData, $customer, $mailbox);
 
         if ($existingTicket) {
             return $this->appendToTicket($existingTicket, $emailData, $customer);
@@ -45,12 +45,12 @@ class EmailProcessorService
         );
     }
 
-    private function findExistingTicket(array $emailData): ?Ticket
+    private function findExistingTicket(array $emailData, Customer $customer, Mailbox $mailbox): ?Ticket
     {
         if (! empty($emailData['in_reply_to'])) {
-            $message = Message::where('message_id', $emailData['in_reply_to'])->first();
-            if ($message) {
-                return $message->ticket;
+            $ticket = $this->findTicketByMessageId($emailData['in_reply_to'], $customer, $mailbox);
+            if ($ticket) {
+                return $ticket;
             }
         }
 
@@ -60,9 +60,9 @@ class EmailProcessorService
                 : explode(' ', $emailData['references']);
 
             foreach ($refs as $ref) {
-                $message = Message::where('message_id', trim($ref))->first();
-                if ($message) {
-                    return $message->ticket;
+                $ticket = $this->findTicketByMessageId(trim($ref), $customer, $mailbox);
+                if ($ticket) {
+                    return $ticket;
                 }
             }
         }
@@ -70,13 +70,24 @@ class EmailProcessorService
         $prefix = Setting::get('ticket_prefix', 'QF');
         $escapedPrefix = preg_quote($prefix, '/');
         if (preg_match('/\['.$escapedPrefix.'-(\d+)\]/', $emailData['subject'] ?? '', $matches)) {
-            $ticket = Ticket::where('ticket_number', $prefix.'-'.$matches[1])->first();
+            $ticket = Ticket::where('ticket_number', $prefix.'-'.$matches[1])
+                ->where('customer_id', $customer->id)
+                ->where('mailbox_id', $mailbox->id)
+                ->first();
             if ($ticket) {
                 return $ticket;
             }
         }
 
         return null;
+    }
+
+    private function findTicketByMessageId(string $messageId, Customer $customer, Mailbox $mailbox): ?Ticket
+    {
+        return Ticket::where('customer_id', $customer->id)
+            ->where('mailbox_id', $mailbox->id)
+            ->whereHas('messages', fn ($query) => $query->where('message_id', $messageId))
+            ->first();
     }
 
     private function resolveDepartment(array $emailData, Mailbox $mailbox): ?string
