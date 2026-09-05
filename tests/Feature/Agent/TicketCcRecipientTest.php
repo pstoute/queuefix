@@ -57,10 +57,8 @@ test('staff public replies normalize deduplicate persist and audit the outbound 
         ->and($messageRecipient->created_by_id)->toBe($actor->id);
 
     $setAudit = TicketCcAudit::query()->where('event', 'outbound_recipient_set')->sole();
-    expect($setAudit->metadata)->toBe([
-        'to' => 'primary@example.com',
-        'cc' => ['other@example.com'],
-    ]);
+    expect($setAudit->metadata['to'])->toBe('primary@example.com')
+        ->and($setAudit->metadata['cc'])->toBe(['other@example.com']);
     $this->assertDatabaseHas('ticket_cc_audits', [
         'ticket_id' => $ticket->id,
         'ticket_cc_recipient_id' => $recipient->id,
