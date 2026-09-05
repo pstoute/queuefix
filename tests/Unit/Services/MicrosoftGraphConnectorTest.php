@@ -260,6 +260,8 @@ test('Graph enforces mailbox storage quota before attachment content fetch', fun
 function graphMailbox(string $id = '00000000-0000-0000-0000-000000000001'): Mailbox
 {
     $mailbox = Mockery::mock(Mailbox::class)->makePartial();
+    $mailbox->setKeyType('string');
+    $mailbox->setIncrementing(false);
     $mailbox->setRawAttributes(['id' => $id]);
     $mailbox->shouldReceive('getDecryptedCredential')->with('access_token')->andReturn('access-token');
     $mailbox->shouldReceive('getDecryptedCredential')->with('refresh_token')->andReturn(null);
