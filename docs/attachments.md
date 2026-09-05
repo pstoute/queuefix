@@ -27,6 +27,12 @@ concurrent workers cannot race past the cumulative quotas. Messages rejected by
 attachment policy retain their body and a rejected metadata record, then
 complete provider acknowledgement instead of retrying forever.
 
+Attachment writes and destructive demo resets share a cache lock so a reset
+cannot erase quota metadata for a concurrently created object. The lock uses
+the `file` cache store by default, which is database-independent and survives
+`migrate:fresh`. Multi-host deployments must set
+`ATTACHMENT_OPERATION_LOCK_STORE` to a shared non-database store such as Redis.
+
 Provider bodies that exceed the shared policy are replaced by a terminal
 omission notice so they can be persisted and acknowledged without poison
 retries.

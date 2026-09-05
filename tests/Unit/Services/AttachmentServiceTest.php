@@ -7,14 +7,19 @@ use App\Models\Attachment;
 use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Ticket;
+use App\Services\Attachments\AttachmentOperationLock;
 use App\Services\Attachments\AttachmentService;
 use App\Support\AttachmentScanResult;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
     Storage::fake('private');
     config([
         'attachments.disk' => 'private',
+        'attachments.operation_lock_store' => 'array',
+        'attachments.operation_lock_seconds' => 60,
+        'attachments.operation_lock_wait_seconds' => 0,
         'attachments.scanning_required' => false,
     ]);
     $this->message = Message::factory()->create();
@@ -150,6 +155,28 @@ test('treats a missing quota lock as retryable infrastructure failure', function
     ))->toBeFalse();
 });
 
+test('rejects a write without creating an orphan while a destructive attachment operation is active', function () {
+    config([
+        'attachments.operation_lock_store' => 'array',
+        'attachments.operation_lock_seconds' => 60,
+        'attachments.operation_lock_wait_seconds' => 0,
+    ]);
+    $lock = Cache::store('array')->lock(AttachmentOperationLock::NAME, 60);
+    expect($lock->get())->toBeTrue();
+
+    try {
+        expect(fn () => $this->service->storeForMessage($this->message, [[
+            'filename' => 'blocked.txt',
+            'content' => 'blocked by reset',
+        ]]))->toThrow(AttachmentRejected::class, 'temporarily unavailable');
+    } finally {
+        $lock->release();
+    }
+
+    expect(Storage::disk('private')->allFiles('attachments'))->toBe([])
+        ->and(Attachment::query()->count())->toBe(0);
+});
+
 test('records duplicate content separately with the same digest', function () {
     $attachments = $this->service->storeForMessage($this->message, [
         ['filename' => 'first.txt', 'content' => 'duplicate'],
@@ -181,7 +208,7 @@ test('scanner rejection persists safe metadata without a storage object', functi
             return AttachmentScanResult::rejected('malware');
         }
     };
-    $service = new AttachmentService($scanner);
+    $service = new AttachmentService($scanner, app(AttachmentOperationLock::class));
 
     $attachment = $service->storeForMessage($this->message, [[
         'filename' => 'notes.txt',

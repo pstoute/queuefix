@@ -8,6 +8,7 @@ use App\Exceptions\AttachmentRejected;
 use App\Models\Attachment;
 use App\Models\Message;
 use App\Support\AttachmentScanResult;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,7 @@ class AttachmentService
 {
     public function __construct(
         private readonly AttachmentScanner $scanner,
+        private readonly AttachmentOperationLock $operationLock,
     ) {}
 
     /**
@@ -80,64 +82,70 @@ class AttachmentService
         $created = collect();
 
         try {
-            return DB::transaction(function () use (
-                $message,
-                $prepared,
-                $storedBytes,
-                $stableNamespace,
-                $disk,
-                &$storedPaths,
-                &$pathsCreatedHere,
-                $created,
-            ): Collection {
-                if ($storedBytes > 0) {
-                    $this->assertStorageQuota($message, $storedBytes);
-                }
+            return $this->operationLock->run(
+                fn (): Collection => DB::transaction(function () use (
+                    $message,
+                    $prepared,
+                    $storedBytes,
+                    $stableNamespace,
+                    $disk,
+                    &$storedPaths,
+                    &$pathsCreatedHere,
+                    $created,
+                ): Collection {
+                    if ($storedBytes > 0) {
+                        $this->assertStorageQuota($message, $storedBytes);
+                    }
 
-                foreach ($prepared as $index => $candidate) {
-                    if ($candidate['scan']->status === AttachmentScanStatus::Rejected) {
+                    foreach ($prepared as $index => $candidate) {
+                        if ($candidate['scan']->status === AttachmentScanStatus::Rejected) {
+                            $created->push(Attachment::create([
+                                'message_id' => $message->id,
+                                'filename' => $candidate['filename'],
+                                'path' => null,
+                                'mime_type' => $candidate['detected_mime_type'],
+                                'claimed_mime_type' => $candidate['claimed_mime_type'],
+                                'size' => $candidate['size'],
+                                'sha256' => $candidate['sha256'],
+                                'scan_status' => AttachmentScanStatus::Rejected,
+                                'rejection_reason' => 'scanner_rejected',
+                            ]));
+
+                            continue;
+                        }
+
+                        $path = $this->storagePath($message, $candidate['filename'], $index, $stableNamespace);
+
+                        if (! $disk->put($path, $candidate['contents'])) {
+                            throw new AttachmentRejected('storage_failed', 'The attachment could not be stored safely.');
+                        }
+
+                        $pathsCreatedHere->push($path);
+                        $storedPaths[] = $path;
                         $created->push(Attachment::create([
                             'message_id' => $message->id,
                             'filename' => $candidate['filename'],
-                            'path' => null,
+                            'path' => $path,
                             'mime_type' => $candidate['detected_mime_type'],
                             'claimed_mime_type' => $candidate['claimed_mime_type'],
                             'size' => $candidate['size'],
                             'sha256' => $candidate['sha256'],
-                            'scan_status' => AttachmentScanStatus::Rejected,
-                            'rejection_reason' => 'scanner_rejected',
+                            'scan_status' => $candidate['scan']->status,
+                            'rejection_reason' => null,
                         ]));
-
-                        continue;
                     }
 
-                    $path = $this->storagePath($message, $candidate['filename'], $index, $stableNamespace);
-
-                    if (! $disk->put($path, $candidate['contents'])) {
-                        throw new AttachmentRejected('storage_failed', 'The attachment could not be stored safely.');
-                    }
-
-                    $pathsCreatedHere->push($path);
-                    $storedPaths[] = $path;
-                    $created->push(Attachment::create([
-                        'message_id' => $message->id,
-                        'filename' => $candidate['filename'],
-                        'path' => $path,
-                        'mime_type' => $candidate['detected_mime_type'],
-                        'claimed_mime_type' => $candidate['claimed_mime_type'],
-                        'size' => $candidate['size'],
-                        'sha256' => $candidate['sha256'],
-                        'scan_status' => $candidate['scan']->status,
-                        'rejection_reason' => null,
-                    ]));
-                }
-
-                return $created;
-            });
+                    return $created;
+                })
+            );
         } catch (Throwable $exception) {
             if ($pathsCreatedHere->isNotEmpty()) {
                 $disk->delete($pathsCreatedHere->all());
                 $storedPaths = array_values(array_diff($storedPaths, $pathsCreatedHere->all()));
+            }
+
+            if ($exception instanceof LockTimeoutException) {
+                throw new AttachmentRejected('storage_unavailable', 'Attachment storage is temporarily unavailable.');
             }
 
             throw $exception;
@@ -168,7 +176,7 @@ class AttachmentService
 
     public function isTerminalRejection(AttachmentRejected $exception): bool
     {
-        return ! in_array($exception->reasonCode, ['storage_failed', 'inspection_failed', 'quota_unavailable'], true);
+        return ! in_array($exception->reasonCode, ['storage_failed', 'inspection_failed', 'quota_unavailable', 'storage_unavailable'], true);
     }
 
     private function storagePath(Message $message, string $filename, int $index, ?string $stableNamespace): string
