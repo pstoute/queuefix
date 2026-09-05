@@ -17,9 +17,14 @@ class ImapConnector implements InboundEmailConnector
 
     private InboundAttachmentPolicy $attachmentPolicy;
 
-    public function __construct(?InboundAttachmentPolicy $attachmentPolicy = null)
-    {
+    private InboundBodyPolicy $bodyPolicy;
+
+    public function __construct(
+        ?InboundAttachmentPolicy $attachmentPolicy = null,
+        ?InboundBodyPolicy $bodyPolicy = null,
+    ) {
         $this->attachmentPolicy = $attachmentPolicy ?? new InboundAttachmentPolicy;
+        $this->bodyPolicy = $bodyPolicy ?? new InboundBodyPolicy;
     }
 
     public function connect(Mailbox $mailbox): bool
@@ -140,8 +145,20 @@ class ImapConnector implements InboundEmailConnector
             : null;
 
         $parts = $this->leafParts($structure);
-        $attachmentResult = $this->getAttachments($emailNumber, $parts);
-        $body = $this->getBody($emailNumber, $parts);
+        if ($parts === null) {
+            $attachmentResult = [
+                'attachments' => [],
+                'rejection' => [
+                    'reason_code' => 'invalid_metadata',
+                    'reported_count' => 0,
+                    'reported_bytes' => 0,
+                ],
+            ];
+            $body = $this->bodyPolicy->omitted();
+        } else {
+            $attachmentResult = $this->getAttachments($emailNumber, $parts);
+            $body = $this->getBody($emailNumber, $parts);
+        }
 
         $rawHeader = imap_fetchheader($this->connection, $emailNumber);
         $messageId = $this->extractHeader($rawHeader, 'Message-ID');
@@ -208,19 +225,22 @@ class ImapConnector implements InboundEmailConnector
             $parts,
             fn (array $descriptor): bool => $this->isBodyPart($descriptor['part']),
         ));
-        $maxBodyBytes = (int) config('attachments.max_body_bytes');
-        $declaredBytes = 0;
+        $maxBodyBytes = $this->bodyPolicy->maxBytes();
+        $maxTransportBytes = $this->bodyPolicy->maxEncodedBodyTransportBytes();
+        $declaredTransportBytes = 0;
 
         foreach ($bodyParts as $descriptor) {
             $size = filter_var($descriptor['part']->bytes ?? null, FILTER_VALIDATE_INT, [
                 'options' => ['min_range' => 0],
             ]);
 
-            if ($size === false || $size > $maxBodyBytes - $declaredBytes) {
-                return $this->omittedBody();
+            if ($size === false
+                || $declaredTransportBytes > $maxTransportBytes
+                || $size > $maxTransportBytes - $declaredTransportBytes) {
+                return $this->bodyPolicy->omitted();
             }
 
-            $declaredBytes += $size;
+            $declaredTransportBytes += $size;
         }
 
         $actualBytes = 0;
@@ -235,7 +255,7 @@ class ImapConnector implements InboundEmailConnector
                 );
 
                 if (strlen($content) > $maxBodyBytes - $actualBytes) {
-                    return $this->omittedBody();
+                    return $this->bodyPolicy->omitted();
                 }
 
                 $actualBytes += strlen($content);
@@ -247,19 +267,10 @@ class ImapConnector implements InboundEmailConnector
                 }
             }
         } catch (AttachmentRejected) {
-            return $this->omittedBody();
+            return $this->bodyPolicy->omitted();
         }
 
-        return $body;
-    }
-
-    /** @return array{text: string, html: null} */
-    private function omittedBody(): array
-    {
-        return [
-            'text' => '[Inbound message body omitted because it exceeded the configured safety limit.]',
-            'html' => null,
-        ];
+        return $this->bodyPolicy->normalize($body['text'], $body['html']);
     }
 
     private function decodeContent(string $content, int $encoding): string
@@ -346,27 +357,47 @@ class ImapConnector implements InboundEmailConnector
      * Flatten every MIME leaf so nested and inline binary parts cannot bypass
      * attachment admission by hiding outside the top-level part list.
      *
-     * @return list<array{part: object, section: string}>
+     * @return list<array{part: object, section: string}>|null
      */
-    private function leafParts(object $part, string $section = ''): array
+    private function leafParts(object $part): ?array
     {
-        if (isset($part->parts) && is_array($part->parts) && $part->parts !== []) {
-            $leaves = [];
+        $leaves = [];
+        $partCount = 0;
+        $scheduledPartCount = 1;
+        $stack = [[$part, '', 0]];
 
-            foreach ($part->parts as $index => $child) {
-                $childSection = $section === ''
-                    ? (string) ($index + 1)
-                    : $section.'.'.($index + 1);
-                array_push($leaves, ...$this->leafParts($child, $childSection));
+        while ($stack !== []) {
+            [$currentPart, $section, $depth] = array_pop($stack);
+            $partCount++;
+
+            if (! $this->bodyPolicy->allowsMimeNode($depth, $partCount)) {
+                return null;
             }
 
-            return $leaves;
+            $children = $currentPart->parts ?? [];
+            if (is_array($children) && $children !== []) {
+                if (count($children) > $this->bodyPolicy->maxMimeParts() - $scheduledPartCount) {
+                    return null;
+                }
+                $scheduledPartCount += count($children);
+
+                for ($index = count($children) - 1; $index >= 0; $index--) {
+                    $childSection = $section === ''
+                        ? (string) ($index + 1)
+                        : $section.'.'.($index + 1);
+                    $stack[] = [$children[$index], $childSection, $depth + 1];
+                }
+
+                continue;
+            }
+
+            $leaves[] = [
+                'part' => $currentPart,
+                'section' => $section === '' ? '1' : $section,
+            ];
         }
 
-        return [[
-            'part' => $part,
-            'section' => $section === '' ? '1' : $section,
-        ]];
+        return $leaves;
     }
 
     private function isBodyPart(object $part): bool
