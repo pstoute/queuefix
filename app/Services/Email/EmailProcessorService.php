@@ -11,6 +11,7 @@ use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\TicketStatus;
+use App\Services\TicketCcService;
 use App\Services\TicketService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -19,6 +20,7 @@ class EmailProcessorService
 {
     public function __construct(
         private TicketService $ticketService,
+        private TicketCcService $ccService,
     ) {}
 
     public function processInboundEmail(array $emailData, Mailbox $mailbox): Ticket
@@ -100,6 +102,7 @@ class EmailProcessorService
             'body' => $emailData['body_html'] ?? $emailData['body_text'] ?? '',
         ], $customer, $mailbox->id, $departmentId);
 
+        /** @var Message|null $message */
         $message = $ticket->messages()->first();
 
         if ($message) {
@@ -115,6 +118,13 @@ class EmailProcessorService
             ]);
 
             $this->processAttachments($message, $emailData['attachments'] ?? []);
+            $this->ccService->recordInbound(
+                $ticket,
+                $message,
+                $emailData['cc'] ?? [],
+                $emailData['from_email'],
+                $emailData['to_email'] ?? null,
+            );
         }
 
         return $ticket;
@@ -143,6 +153,13 @@ class EmailProcessorService
         ]);
 
         $this->processAttachments($message, $emailData['attachments'] ?? []);
+        $this->ccService->recordInbound(
+            $ticket,
+            $message,
+            $emailData['cc'] ?? [],
+            $emailData['from_email'],
+            $emailData['to_email'] ?? null,
+        );
 
         return $ticket->fresh();
     }

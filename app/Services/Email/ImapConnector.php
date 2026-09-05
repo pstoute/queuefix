@@ -99,6 +99,17 @@ class ImapConnector
         $messageId = $this->extractHeader($rawHeader, 'Message-ID');
         $inReplyTo = $this->extractHeader($rawHeader, 'In-Reply-To');
         $references = $this->extractHeader($rawHeader, 'References');
+        $ccRecipients = [];
+        foreach ($header->cc ?? [] as $ccAddress) {
+            if (! isset($ccAddress->mailbox, $ccAddress->host)) {
+                continue;
+            }
+
+            $ccRecipients[] = [
+                'email' => $ccAddress->mailbox.'@'.$ccAddress->host,
+                'display_name' => isset($ccAddress->personal) ? imap_utf8($ccAddress->personal) : null,
+            ];
+        }
 
         imap_setflag_full($this->connection, (string) $emailNumber, '\\Seen');
 
@@ -112,6 +123,7 @@ class ImapConnector
             'message_id' => $messageId,
             'in_reply_to' => $inReplyTo,
             'references' => $references,
+            'cc' => $ccRecipients,
             'date' => $header->date ?? null,
             'attachments' => $attachments,
         ];
@@ -227,6 +239,10 @@ class ImapConnector
                 ->from($this->mailbox->email)
                 ->to($data['to'])
                 ->subject($data['subject']);
+
+            if (! empty($data['cc'])) {
+                $email->cc(...$data['cc']);
+            }
 
             if (! empty($data['html'])) {
                 $email->html($data['html']);

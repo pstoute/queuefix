@@ -64,10 +64,12 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
   const [newTag, setNewTag] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingBody, setEditingBody] = useState('');
+  const [ccInput, setCcInput] = useState('');
 
   const { data, setData, post, processing, reset } = useForm({
     body: '',
     type: 'reply' as 'reply' | 'internal_note',
+    cc: ticket.cc_recipients?.map((recipient) => recipient.email) || [] as string[],
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -75,7 +77,8 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
     post(`/agent/tickets/${ticket.id}/reply`, {
       preserveScroll: true,
       onSuccess: () => {
-        reset();
+        reset('body');
+        setData('type', 'reply');
         setReplyType('reply');
       },
     });
@@ -114,6 +117,25 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
 
   const handleRemoveTag = (tagId: string) => {
     router.delete(`/agent/tickets/${ticket.id}/tags/${tagId}`, { preserveScroll: true });
+  };
+
+  const addCcRecipient = () => {
+    const email = ccInput.trim().toLowerCase();
+    if (email && email !== ticket.customer?.email.toLowerCase() && !data.cc.includes(email)) {
+      setData('cc', [...data.cc, email]);
+      setCcInput('');
+    }
+  };
+
+  const removeCcRecipient = (email: string) => {
+    setData('cc', data.cc.filter((recipient) => recipient !== email));
+  };
+
+  const removeTicketCcRecipient = (recipientId: string, email: string) => {
+    router.delete(`/agent/tickets/${ticket.id}/cc-recipients/${recipientId}`, {
+      preserveScroll: true,
+      onSuccess: () => removeCcRecipient(email),
+    });
   };
 
   const mentionSuggestions = (body: string) => {
@@ -384,6 +406,17 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
                               />
                             )}
 
+                            {!isInternal && message.cc_recipients && message.cc_recipients.length > 0 && (
+                              <div className="mt-3 flex flex-wrap items-center gap-1 border-t pt-3 text-xs text-muted-foreground">
+                                <span>CC:</span>
+                                {message.cc_recipients.map((recipient) => (
+                                  <Badge key={recipient.id} variant="outline" className="font-normal">
+                                    {recipient.display_name || recipient.email}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+
                             {/* Attachments */}
                             {message.attachments && message.attachments.length > 0 && (
                               <div className="mt-3 pt-3 border-t space-y-2">
@@ -422,6 +455,7 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
                         onClick={() => {
                           setReplyType('reply');
                           setData('type', 'reply');
+                          setData('cc', ticket.cc_recipients?.map((recipient) => recipient.email) || []);
                         }}
                       >
                         <Send className="mr-2 h-4 w-4" />
@@ -434,6 +468,7 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
                         onClick={() => {
                           setReplyType('internal_note');
                           setData('type', 'internal_note');
+                          setData('cc', []);
                         }}
                       >
                         <StickyNote className="mr-2 h-4 w-4" />
@@ -470,6 +505,46 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
                             <span className="text-muted-foreground">{user.name}</span>
                           </button>
                         ))}
+                      </div>
+                    )}
+
+                    {replyType === 'reply' && (
+                      <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                        <div className="text-xs text-muted-foreground">
+                          <span className="font-medium text-foreground">To:</span> {ticket.customer?.email}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="text-xs font-medium">CC:</span>
+                          {data.cc.length === 0 && (
+                            <span className="text-xs text-muted-foreground">No additional recipients</span>
+                          )}
+                          {data.cc.map((email) => (
+                            <Badge key={email} variant="outline" className="gap-1 font-normal">
+                              {email}
+                              <button type="button" onClick={() => removeCcRecipient(email)} aria-label={`Remove ${email}`}>
+                                <X className="h-3 w-3" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            type="email"
+                            value={ccInput}
+                            onChange={(event) => setCcInput(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                addCcRecipient();
+                              }
+                            }}
+                            placeholder="Add CC email"
+                            className="h-9 flex-1 rounded-md border bg-background px-3 text-sm"
+                          />
+                          <Button type="button" variant="outline" size="sm" onClick={addCcRecipient}>
+                            Add CC
+                          </Button>
+                        </div>
                       </div>
                     )}
 
@@ -612,6 +687,38 @@ export default function TicketShow({ ticket, agents, statuses, priorities, menti
                         </Button>
                       </div>
                     </div>
+                  </CardContent>
+                </Card>
+
+                {/* CC recipients */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">CC Recipients</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {ticket.cc_recipients && ticket.cc_recipients.length > 0 ? (
+                      <div className="space-y-2">
+                        {ticket.cc_recipients.map((recipient) => (
+                          <div key={recipient.id} className="flex items-center justify-between gap-2 text-sm">
+                            <div className="min-w-0">
+                              {recipient.display_name && <div className="truncate font-medium">{recipient.display_name}</div>}
+                              <div className="truncate text-muted-foreground">{recipient.email}</div>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Remove ${recipient.email}`}
+                              onClick={() => removeTicketCcRecipient(recipient.id, recipient.email)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No approved CC recipients.</p>
+                    )}
                   </CardContent>
                 </Card>
 

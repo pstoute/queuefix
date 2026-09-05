@@ -18,6 +18,7 @@ interface CustomerTicketShowProps {
 export default function CustomerTicketShow({ ticket, customer }: CustomerTicketShowProps) {
     const { data, setData, post, processing, errors, reset } = useForm({
         body: '',
+        cc_recipient_ids: ticket.cc_recipients?.map((recipient) => recipient.id) || [] as string[],
     });
 
     const submit: FormEventHandler = (e) => {
@@ -127,6 +128,16 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
                                                 {message.body_text}
                                             </div>
                                         )}
+                                        {message.cc_recipients && message.cc_recipients.length > 0 && (
+                                            <div className="mt-4 flex flex-wrap items-center gap-1 border-t pt-3 text-xs text-gray-600">
+                                                <span>CC:</span>
+                                                {message.cc_recipients.map((recipient) => (
+                                                    <Badge key={recipient.id} variant="outline">
+                                                        {recipient.display_name || recipient.email}
+                                                    </Badge>
+                                                ))}
+                                            </div>
+                                        )}
                                     </CardContent>
                                 </Card>
                             );
@@ -154,6 +165,33 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
                                         <p className="text-sm text-destructive">{errors.body}</p>
                                     )}
                                 </div>
+
+                                {ticket.cc_recipients && ticket.cc_recipients.length > 0 && (
+                                    <div className="space-y-2 rounded-md border p-3">
+                                        <p className="text-sm font-medium">Approved CC recipients</p>
+                                        <p className="text-xs text-gray-600">
+                                            You may include only recipients already approved for this ticket.
+                                        </p>
+                                        {ticket.cc_recipients.map((recipient) => (
+                                            <label key={recipient.id} className="flex items-center gap-2 text-sm">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={data.cc_recipient_ids.includes(recipient.id)}
+                                                    onChange={(event) => setData(
+                                                        'cc_recipient_ids',
+                                                        event.target.checked
+                                                            ? [...data.cc_recipient_ids, recipient.id]
+                                                            : data.cc_recipient_ids.filter((id) => id !== recipient.id)
+                                                    )}
+                                                />
+                                                {recipient.display_name || recipient.email}
+                                            </label>
+                                        ))}
+                                        {errors.cc_recipient_ids && (
+                                            <p className="text-sm text-destructive">{errors.cc_recipient_ids}</p>
+                                        )}
+                                    </div>
+                                )}
 
                                 <div className="flex justify-end">
                                     <Button type="submit" disabled={processing}>

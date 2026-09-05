@@ -99,6 +99,7 @@ export interface Ticket {
     watchers?: User[];
     is_watching?: boolean;
     unread_count?: number;
+    cc_recipients?: TicketCcRecipient[];
 }
 
 export interface Message {
@@ -114,6 +115,28 @@ export interface Message {
     sender?: User | Customer;
     attachments?: Attachment[];
     mentions?: TicketMention[];
+    cc_recipients?: MessageCcRecipient[];
+}
+
+export interface TicketCcRecipient {
+    id: string;
+    ticket_id: string;
+    email: string;
+    display_name?: string | null;
+    source: string;
+    validation_state: 'approved';
+    approved_at?: string | null;
+    removed_at?: string | null;
+}
+
+export interface MessageCcRecipient {
+    id: string;
+    message_id: string;
+    email: string;
+    display_name?: string | null;
+    source: string;
+    validation_state: 'approved';
+    delivered_at?: string | null;
 }
 
 export interface TicketMention {

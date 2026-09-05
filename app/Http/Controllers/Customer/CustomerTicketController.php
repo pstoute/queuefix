@@ -7,9 +7,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Ticket;
 use App\Models\TicketStatus;
+use App\Services\TicketCcService;
 use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -17,6 +19,7 @@ class CustomerTicketController extends Controller
 {
     public function __construct(
         private TicketService $ticketService,
+        private TicketCcService $ccService,
     ) {}
 
     public function index(Request $request): Response
@@ -60,9 +63,13 @@ class CustomerTicketController extends Controller
         $ticket->load([
             'messages' => function ($q) {
                 $q->where('type', MessageType::Reply)
-                    ->with(['sender', 'attachments'])
+                    ->with(['sender', 'attachments', 'ccRecipients'])
                     ->orderBy('created_at', 'asc');
             },
+            'ccRecipients' => fn ($query) => $query
+                ->where('validation_state', 'approved')
+                ->whereNull('removed_at')
+                ->orderBy('email'),
             'status',
         ]);
 
@@ -88,15 +95,26 @@ class CustomerTicketController extends Controller
 
         $validated = $request->validate([
             'body' => 'required|string',
+            'cc_recipient_ids' => ['sometimes', 'array', 'max:20'],
+            'cc_recipient_ids.*' => ['required', 'uuid', 'distinct'],
         ]);
 
-        $this->ticketService->addMessage($ticket, [
-            'type' => MessageType::Reply,
-            'body_text' => strip_tags($validated['body']),
-            'body_html' => $validated['body'],
-            'sender_type' => Customer::class,
-            'sender_id' => $customer->id,
-        ]);
+        DB::transaction(function () use ($ticket, $validated, $customer): void {
+            $message = $this->ticketService->addMessage($ticket, [
+                'type' => MessageType::Reply,
+                'body_text' => strip_tags($validated['body']),
+                'body_html' => $validated['body'],
+                'sender_type' => Customer::class,
+                'sender_id' => $customer->id,
+            ]);
+
+            $this->ccService->recordCustomerReply(
+                $ticket,
+                $message,
+                $validated['cc_recipient_ids'] ?? [],
+                $customer,
+            );
+        }, 3);
 
         return back()->with('success', 'Reply sent.');
     }

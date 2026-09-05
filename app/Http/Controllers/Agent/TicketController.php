@@ -13,11 +13,13 @@ use App\Models\Ticket;
 use App\Models\TicketStatus;
 use App\Models\User;
 use App\Services\SlaService;
+use App\Services\TicketCcService;
 use App\Services\TicketMentionService;
 use App\Services\TicketReadStateService;
 use App\Services\TicketService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -30,6 +32,7 @@ class TicketController extends Controller
         private SlaService $slaService,
         private TicketReadStateService $readStateService,
         private TicketMentionService $mentionService,
+        private TicketCcService $ccService,
     ) {}
 
     public function index(Request $request): Response
@@ -109,6 +112,10 @@ class TicketController extends Controller
             'assignee',
             'department',
             'tags',
+            'ccRecipients' => fn ($query) => $query
+                ->where('validation_state', 'approved')
+                ->whereNull('removed_at')
+                ->orderBy('email'),
             'mailbox',
             'status',
             'slaTimer.slaPolicy',
@@ -121,6 +128,7 @@ class TicketController extends Controller
                 $q->with([
                     'sender',
                     'attachments',
+                    'ccRecipients' => fn ($ccQuery) => $ccQuery->orderBy('email'),
                     'mentions' => fn ($mentionQuery) => $mentionQuery
                         ->whereNull('removed_at')
                         ->with('mentionedUser:id,handle'),
@@ -188,24 +196,43 @@ class TicketController extends Controller
 
     public function reply(Request $request, Ticket $ticket): RedirectResponse
     {
+        Gate::authorize('update', $ticket);
+
         $validated = $request->validate([
             'body' => 'required|string',
             'type' => 'sometimes|string|in:reply,internal_note',
+            'cc' => [
+                'sometimes',
+                'array',
+                'max:20',
+                Rule::prohibitedIf($request->input('type', MessageType::Reply->value) === MessageType::InternalNote->value),
+            ],
+            'cc.*' => ['required', 'string', 'max:254', 'email:rfc'],
         ]);
 
         $type = MessageType::from($validated['type'] ?? 'reply');
         $isInternalNote = $type === MessageType::InternalNote;
+        /** @var User $actor */
+        $actor = $request->user();
 
-        $message = $this->ticketService->addMessage($ticket, [
+        $messageData = [
             'type' => $type,
             'body_text' => $isInternalNote ? $validated['body'] : strip_tags($validated['body']),
             'body_html' => $isInternalNote ? null : $validated['body'],
             'sender_type' => User::class,
-            'sender_id' => $request->user()->id,
-        ], actor: $request->user());
+            'sender_id' => $actor->id,
+        ];
 
         if ($isInternalNote) {
-            $this->mentionService->syncMentions($ticket, $message, $request->user());
+            $message = $this->ticketService->addMessage($ticket, $messageData, actor: $actor);
+            $this->mentionService->syncMentions($ticket, $message, $actor);
+        } else {
+            $message = DB::transaction(function () use ($ticket, $messageData, $validated, $actor): Message {
+                $message = $this->ticketService->addMessage($ticket, $messageData, actor: $actor);
+                $this->ccService->recordStaffReply($ticket, $message, $validated['cc'] ?? [], $actor);
+
+                return $message;
+            }, 3);
         }
 
         if ($type === MessageType::Reply && $ticket->mailbox_id) {

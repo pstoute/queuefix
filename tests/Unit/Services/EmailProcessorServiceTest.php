@@ -13,7 +13,7 @@ beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->ticketService = app(TicketService::class);
-    $this->emailProcessor = new EmailProcessorService($this->ticketService);
+    $this->emailProcessor = app(EmailProcessorService::class);
     $this->openStatus = TicketStatus::defaultStatus();
     $this->resolvedStatus = $this->ticketStatusAt(40);
 });

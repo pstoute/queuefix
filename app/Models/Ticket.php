@@ -105,6 +105,7 @@ class Ticket extends Model
     /**
      * Get the customer that owns the ticket.
      */
+    /** @return BelongsTo<Customer, $this> */
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
@@ -131,6 +132,7 @@ class Ticket extends Model
     /**
      * Get the mailbox associated with the ticket.
      */
+    /** @return BelongsTo<Mailbox, $this> */
     public function mailbox(): BelongsTo
     {
         return $this->belongsTo(Mailbox::class);
@@ -183,5 +185,17 @@ class Ticket extends Model
     public function mentions(): HasMany
     {
         return $this->hasMany(TicketMention::class);
+    }
+
+    /** @return HasMany<TicketCcRecipient, $this> */
+    public function ccRecipients(): HasMany
+    {
+        return $this->hasMany(TicketCcRecipient::class);
+    }
+
+    /** @return HasMany<TicketCcAudit, $this> */
+    public function ccAudits(): HasMany
+    {
+        return $this->hasMany(TicketCcAudit::class);
     }
 }

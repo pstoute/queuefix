@@ -3,6 +3,7 @@
 use App\Http\Controllers\Agent\CannedResponseController;
 use App\Http\Controllers\Agent\DashboardController;
 use App\Http\Controllers\Agent\TagController;
+use App\Http\Controllers\Agent\TicketCcRecipientController;
 use App\Http\Controllers\Agent\TicketController;
 use App\Http\Controllers\Agent\TicketMessageController;
 use App\Http\Controllers\Agent\TicketReadStateController;
@@ -66,6 +67,7 @@ Route::middleware(['auth', 'verified'])->prefix('agent')->name('agent.')->group(
     Route::post('tickets/{ticket}/watch', [TicketWatcherController::class, 'store'])->name('tickets.watch.store');
     Route::delete('tickets/{ticket}/watch', [TicketWatcherController::class, 'destroy'])->name('tickets.watch.destroy');
     Route::patch('tickets/{ticket}/read', TicketReadStateController::class)->name('tickets.read');
+    Route::delete('tickets/{ticket}/cc-recipients/{ccRecipient}', [TicketCcRecipientController::class, 'destroy'])->name('tickets.cc-recipients.destroy');
     Route::get('tickets/{ticket}/messages/{message}', [TicketMessageController::class, 'show'])->name('tickets.messages.show');
     Route::patch('tickets/{ticket}/messages/{message}/internal-note', [TicketMessageController::class, 'update'])->name('tickets.messages.internal-note.update');
 

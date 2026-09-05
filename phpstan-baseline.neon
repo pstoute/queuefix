@@ -1,12 +1,6 @@
 parameters:
 	ignoreErrors:
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Agent/CannedResponseController.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -179,54 +173,6 @@ parameters:
 			identifier: missingType.iterableValue
 			count: 1
 			path: app/Jobs/ProcessInboundEmailJob.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$email\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/SendEmailReplyJob.php
-
-		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/SendEmailReplyJob.php
-
-		-
-			message: '#^Match arm comparison between ''gmail''\|''imap''\|''microsoft'' and App\\Enums\\MailboxType\:\:Gmail is always false\.$#'
-			identifier: match.alwaysFalse
-			count: 1
-			path: app/Jobs/SendEmailReplyJob.php
-
-		-
-			message: '#^Match arm comparison between ''gmail''\|''imap''\|''microsoft'' and App\\Enums\\MailboxType\:\:Imap is always false\.$#'
-			identifier: match.alwaysFalse
-			count: 1
-			path: app/Jobs/SendEmailReplyJob.php
-
-		-
-			message: '#^Match arm comparison between ''gmail''\|''imap''\|''microsoft'' and App\\Enums\\MailboxType\:\:Microsoft is always false\.$#'
-			identifier: match.alwaysFalse
-			count: 1
-			path: app/Jobs/SendEmailReplyJob.php
-
-		-
-			message: '#^Match expression does not handle remaining values\: ''gmail''\|''imap''\|''microsoft''$#'
-			identifier: match.unhandled
-			count: 1
-			path: app/Jobs/SendEmailReplyJob.php
-
-		-
-			message: '#^Parameter \#1 \$mailbox of method App\\Jobs\\SendEmailReplyJob\:\:getConnector\(\) expects App\\Models\\Mailbox, Illuminate\\Database\\Eloquent\\Model given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Jobs/SendEmailReplyJob.php
-
-		-
-			message: '#^Parameter \#1 \$mailbox of method App\\Services\\Email\\GmailConnector\:\:connect\(\) expects App\\Models\\Mailbox, Illuminate\\Database\\Eloquent\\Model given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Jobs/SendEmailReplyJob.php
 
 		-
 			message: '#^Parameter \#2 \$lastMessage of method App\\Services\\Email\\EmailProcessorService\:\:buildOutboundHeaders\(\) expects App\\Models\\Message\|null, Illuminate\\Database\\Eloquent\\Model\|null given\.$#'
@@ -445,19 +391,7 @@ parameters:
 			path: app/Models/Ticket.php
 
 		-
-			message: '#^Method App\\Models\\Ticket\:\:customer\(\) return type with generic class Illuminate\\Database\\Eloquent\\Relations\\BelongsTo does not specify its types\: TRelatedModel, TDeclaringModel$#'
-			identifier: missingType.generics
-			count: 1
-			path: app/Models/Ticket.php
-
-		-
 			message: '#^Method App\\Models\\Ticket\:\:department\(\) return type with generic class Illuminate\\Database\\Eloquent\\Relations\\BelongsTo does not specify its types\: TRelatedModel, TDeclaringModel$#'
-			identifier: missingType.generics
-			count: 1
-			path: app/Models/Ticket.php
-
-		-
-			message: '#^Method App\\Models\\Ticket\:\:mailbox\(\) return type with generic class Illuminate\\Database\\Eloquent\\Relations\\BelongsTo does not specify its types\: TRelatedModel, TDeclaringModel$#'
 			identifier: missingType.generics
 			count: 1
 			path: app/Models/Ticket.php
@@ -555,12 +489,6 @@ parameters:
 		-
 			message: '#^Method App\\Services\\Email\\EmailProcessorService\:\:resolveDepartment\(\) has parameter \$emailData with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/Email/EmailProcessorService.php
-
-		-
-			message: '#^Parameter \#1 \$message of method App\\Services\\Email\\EmailProcessorService\:\:processAttachments\(\) expects App\\Models\\Message, Illuminate\\Database\\Eloquent\\Model given\.$#'
-			identifier: argument.type
 			count: 1
 			path: app/Services/Email/EmailProcessorService.php
 
