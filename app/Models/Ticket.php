@@ -162,4 +162,14 @@ class Ticket extends Model
     {
         return $this->belongsToMany(Tag::class, 'tag_ticket');
     }
+
+    /**
+     * Get the agents who explicitly watch this ticket.
+     *
+     * @return BelongsToMany<User, $this>
+     */
+    public function watchers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'ticket_watchers')->withTimestamps();
+    }
 }

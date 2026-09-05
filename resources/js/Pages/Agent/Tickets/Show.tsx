@@ -40,6 +40,8 @@ import {
   Tag,
   Plus,
   X,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 interface TicketShowProps extends PageProps {
@@ -86,6 +88,16 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
 
   const handleAssigneeChange = (assignee: string) => {
     router.patch(`/agent/tickets/${ticket.id}/assign`, { assigned_to: assignee }, { preserveScroll: true });
+  };
+
+  const handleWatchToggle = () => {
+    const options = { preserveScroll: true };
+
+    if (ticket.is_watching) {
+      router.delete(`/agent/tickets/${ticket.id}/watch`, options);
+    } else {
+      router.post(`/agent/tickets/${ticket.id}/watch`, {}, options);
+    }
   };
 
   const handleAddTag = () => {
@@ -176,6 +188,19 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                 </div>
                 <h1 className="text-xl font-semibold">{ticket.subject}</h1>
               </div>
+              <Button
+                type="button"
+                variant={ticket.is_watching ? 'default' : 'outline'}
+                onClick={handleWatchToggle}
+                aria-pressed={ticket.is_watching}
+              >
+                {ticket.is_watching ? (
+                  <EyeOff className="mr-2 h-4 w-4" />
+                ) : (
+                  <Eye className="mr-2 h-4 w-4" />
+                )}
+                {ticket.is_watching ? 'Unwatch' : 'Watch'}
+              </Button>
             </div>
           </div>
         </div>
@@ -451,6 +476,36 @@ export default function TicketShow({ ticket, agents, statuses, priorities }: Tic
                         </Button>
                       </div>
                     </div>
+                  </CardContent>
+                </Card>
+
+                {/* Watchers */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Eye className="h-4 w-4" />
+                      Watchers
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {ticket.watchers && ticket.watchers.length > 0 ? (
+                      <div className="space-y-3">
+                        {ticket.watchers.map((watcher) => (
+                          <div key={watcher.id} className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={watcher.avatar} alt={watcher.name} />
+                              <AvatarFallback>{getInitials(watcher.name)}</AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium">{watcher.name}</div>
+                              <div className="truncate text-xs text-muted-foreground">{watcher.email}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No agents are watching this ticket.</p>
+                    )}
                   </CardContent>
                 </Card>
 

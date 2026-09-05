@@ -22,7 +22,7 @@ import {
 } from '@/Components/ui/table';
 import { formatRelativeTime, formatDate } from '@/lib/hooks';
 import { useState } from 'react';
-import { Plus, Search, Inbox, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, Inbox, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 
 interface TicketsIndexProps extends PageProps {
   tickets: PaginatedData<Ticket>;
@@ -32,6 +32,7 @@ interface TicketsIndexProps extends PageProps {
     assignee?: string;
     department?: string;
     search?: string;
+    watching?: string;
   };
   agents: User[];
   departments: Array<{ id: string; name: string }>;
@@ -147,6 +148,16 @@ export default function TicketsIndex({
                   />
                 </div>
               </form>
+
+              <Button
+                type="button"
+                variant={filters.watching ? 'default' : 'outline'}
+                onClick={() => handleFilterChange('watching', filters.watching ? 'all' : '1')}
+                aria-pressed={Boolean(filters.watching)}
+              >
+                <Eye className="mr-2 h-4 w-4" />
+                Watching
+              </Button>
 
               {/* Status filter */}
               <Select

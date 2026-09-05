@@ -10,13 +10,15 @@ use App\Models\Tag;
 use App\Models\TicketStatus;
 use App\Models\User;
 use App\Services\SlaService;
+use App\Services\TicketNotificationService;
 use App\Services\TicketService;
 
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
     Setting::set('ticket_counter', '0', 'system');
     $this->slaService = Mockery::mock(SlaService::class);
-    $this->ticketService = new TicketService($this->slaService);
+    $this->notificationService = Mockery::mock(TicketNotificationService::class)->shouldIgnoreMissing();
+    $this->ticketService = new TicketService($this->slaService, $this->notificationService);
     $this->openStatus = TicketStatus::defaultStatus();
     $this->pendingStatus = $this->ticketStatusAt(20);
     $this->resolvedStatus = $this->ticketStatusAt(40);

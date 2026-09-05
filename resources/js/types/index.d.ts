@@ -95,6 +95,8 @@ export interface Ticket {
     tags?: Tag[];
     mailbox?: Mailbox;
     sla_timer?: SlaTimer;
+    watchers?: User[];
+    is_watching?: boolean;
 }
 
 export interface Message {
