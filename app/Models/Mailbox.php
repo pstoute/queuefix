@@ -55,6 +55,7 @@ class Mailbox extends Model
             'outgoing_settings' => 'json',
             'is_active' => 'boolean',
             'last_checked_at' => 'datetime',
+            'imap_poll_cursor' => 'integer',
         ];
     }
 

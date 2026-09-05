@@ -4,15 +4,20 @@ use App\Enums\AttachmentScanStatus;
 use App\Jobs\FetchEmailsJob;
 use App\Jobs\ProcessInboundEmailJob;
 use App\Models\Attachment;
+use App\Models\InboundEmailClaim;
 use App\Models\InboundEmailReceipt;
 use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Services\Email\EmailProcessorService;
+use App\Services\Email\InboundEmailClaimService;
 use App\Services\Email\InboundEmailConnector;
+use App\Services\Email\InboundEmailPollingPolicy;
 use App\Services\Email\MailboxConnectorFactory;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     Setting::set('ticket_prefix', 'QF', 'general');
@@ -44,6 +49,327 @@ test('fetching dispatches processing without acknowledging the provider message'
     });
     expect(Ticket::count())->toBe(0)
         ->and(Message::count())->toBe(0);
+});
+
+test('mailbox fetch jobs expose a bounded uniqueness contract', function () {
+    $mailboxId = '00000000-0000-4000-8000-000000000001';
+    $job = new FetchEmailsJob($mailboxId);
+
+    expect($job->uniqueId())->toBe($mailboxId)
+        ->and($job->uniqueFor)->toBe(300);
+});
+
+test('processing jobs finish before queue retry and claim lease boundaries', function () {
+    config([
+        'queue.connections.database.retry_after' => 90,
+        'inbound.claim_lease_seconds' => 120,
+    ]);
+    $job = new ProcessInboundEmailJob([
+        'provider_message_id' => 'gmail:runtime-boundary',
+        'provider_remote_id' => 'runtime-boundary',
+    ], '00000000-0000-4000-8000-000000000001');
+
+    expect($job->timeout)->toBe(60)
+        ->and($job->failOnTimeout)->toBeTrue()
+        ->and($job->timeout)->toBeLessThan(config('queue.connections.database.retry_after'))
+        ->and(config('queue.connections.database.retry_after'))->toBeLessThan(
+            app(InboundEmailPollingPolicy::class)->claimLeaseSeconds(),
+        );
+});
+
+test('repeated polls dispatch one pending job per provider identity', function () {
+    Queue::fake();
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'imap:INBOX:123:duplicate',
+        'provider_remote_id' => '456',
+        'uid_validity' => 123,
+    ];
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->twice()->andReturnTrue();
+    $connector->shouldReceive('fetchNewEmailReferences')->twice()->andReturn([$providerReference]);
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->twice()->andReturn($connector);
+    $job = new FetchEmailsJob($mailbox->id);
+
+    $job->handle($connectorFactory);
+    $job->handle($connectorFactory);
+
+    Queue::assertPushed(ProcessInboundEmailJob::class, 1);
+});
+
+test('one provider poll dispatches no more than the configured batch size', function () {
+    Queue::fake();
+    config(['inbound.poll_batch_size' => 3]);
+    $mailbox = Mailbox::factory()->create();
+    $providerReferences = array_map(fn (int $index): array => [
+        'provider_message_id' => "gmail:backlog-{$index}",
+        'provider_remote_id' => "backlog-{$index}",
+    ], range(1, 100));
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->once()->andReturnTrue();
+    $connector->shouldReceive('fetchNewEmailReferences')->once()->andReturn($providerReferences);
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->once()->andReturn($connector);
+
+    (new FetchEmailsJob($mailbox->id))->handle($connectorFactory);
+
+    Queue::assertPushed(ProcessInboundEmailJob::class, 3);
+});
+
+test('a bounded scan skips active claims and still fills the dispatch batch', function () {
+    Queue::fake();
+    config(['inbound.poll_batch_size' => 2]);
+    $mailbox = Mailbox::factory()->create();
+    $providerReferences = array_map(fn (int $index): array => [
+        'provider_message_id' => "gmail:scan-{$index}",
+        'provider_remote_id' => "scan-{$index}",
+    ], range(1, 5));
+    $claimService = app(InboundEmailClaimService::class);
+    foreach (array_slice($providerReferences, 0, 3) as $reference) {
+        expect($claimService->acquire(
+            $mailbox->id,
+            $reference['provider_message_id'],
+            (string) Str::uuid(),
+        ))->toBeTrue();
+    }
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->once()->andReturnTrue();
+    $connector->shouldReceive('fetchNewEmailReferences')->once()->andReturn($providerReferences);
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->once()->andReturn($connector);
+
+    (new FetchEmailsJob($mailbox->id))->handle($connectorFactory);
+
+    Queue::assertPushed(ProcessInboundEmailJob::class, 2);
+    expect(InboundEmailClaim::query()->count())->toBe(5);
+});
+
+test('an uncertain dispatch failure retains its lease until recovery is safe', function () {
+    config(['inbound.claim_lease_seconds' => 120]);
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'gmail:dispatch-failure',
+        'provider_remote_id' => 'dispatch-failure',
+    ];
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->once()->andReturnTrue();
+    $connector->shouldReceive('fetchNewEmailReferences')->once()->andReturn([$providerReference]);
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->once()->andReturn($connector);
+    $dispatcher = Mockery::mock(Dispatcher::class);
+    $dispatcher->shouldReceive('dispatch')->once()->andThrow(new RuntimeException('Queue unavailable'));
+
+    (new FetchEmailsJob($mailbox->id))->handle(
+        $connectorFactory,
+        app(InboundEmailClaimService::class),
+        app(InboundEmailPollingPolicy::class),
+        $dispatcher,
+    );
+
+    $claimService = app(InboundEmailClaimService::class);
+    expect(InboundEmailClaim::query()->count())->toBe(1)
+        ->and($claimService->acquire(
+            $mailbox->id,
+            $providerReference['provider_message_id'],
+            (string) Str::uuid(),
+        ))->toBeFalse();
+
+    $this->travel(121)->seconds();
+    expect($claimService->acquire(
+        $mailbox->id,
+        $providerReference['provider_message_id'],
+        (string) Str::uuid(),
+    ))->toBeTrue();
+});
+
+test('a synchronous dispatch failure cannot erase a terminal claim', function () {
+    config(['inbound.max_failure_count' => 1]);
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'gmail:sync-final-failure',
+        'provider_remote_id' => 'sync-final-failure',
+    ];
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->once()->andReturnTrue();
+    $connector->shouldReceive('fetchNewEmailReferences')->once()->andReturn([$providerReference]);
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->once()->andReturn($connector);
+    $dispatcher = Mockery::mock(Dispatcher::class);
+    $dispatcher->shouldReceive('dispatch')->once()->andReturnUsing(function (ProcessInboundEmailJob $job): never {
+        $job->failed(new RuntimeException('Synchronous final failure'));
+
+        throw new RuntimeException('Synchronous final failure');
+    });
+
+    (new FetchEmailsJob($mailbox->id))->handle(
+        $connectorFactory,
+        app(InboundEmailClaimService::class),
+        app(InboundEmailPollingPolicy::class),
+        $dispatcher,
+    );
+
+    $claim = InboundEmailClaim::query()->sole();
+    expect($claim->failure_count)->toBe(1)
+        ->and($claim->exhausted_at)->not->toBeNull();
+});
+
+test('a stale processing token exits before provider work', function () {
+    config(['inbound.claim_lease_seconds' => 120]);
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'gmail:stale-token',
+        'provider_remote_id' => 'stale-token',
+    ];
+    $claimService = app(InboundEmailClaimService::class);
+    $oldToken = (string) Str::uuid();
+    $newToken = (string) Str::uuid();
+    expect($claimService->acquire($mailbox->id, $providerReference['provider_message_id'], $oldToken))->toBeTrue();
+    $this->travel(121)->seconds();
+    expect($claimService->acquire($mailbox->id, $providerReference['provider_message_id'], $newToken))->toBeTrue();
+
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldNotReceive('make');
+
+    (new ProcessInboundEmailJob($providerReference, $mailbox->id, $oldToken))
+        ->handle(app(EmailProcessorService::class), $connectorFactory, null, $claimService);
+
+    expect(InboundEmailClaim::query()->sole()->claim_token)->toBe($newToken);
+});
+
+test('a lease reclaimed during provider hydration fences processing and acknowledgement', function () {
+    config(['inbound.claim_lease_seconds' => 120]);
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'gmail:hydration-fence',
+        'provider_remote_id' => 'hydration-fence',
+    ];
+    $claimService = app(InboundEmailClaimService::class);
+    $oldToken = (string) Str::uuid();
+    $newToken = (string) Str::uuid();
+    expect($claimService->acquire($mailbox->id, $providerReference['provider_message_id'], $oldToken))->toBeTrue();
+
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->once()->andReturnTrue();
+    $connector->shouldReceive('fetchEmail')->once()->andReturnUsing(function () use (
+        $claimService,
+        $mailbox,
+        $providerReference,
+        $newToken,
+    ): array {
+        $this->travel(121)->seconds();
+        expect($claimService->acquire(
+            $mailbox->id,
+            $providerReference['provider_message_id'],
+            $newToken,
+        ))->toBeTrue();
+
+        return [
+            ...$providerReference,
+            'from_email' => 'customer@example.com',
+            'subject' => 'Fence stale hydration',
+            'body_text' => 'Do not process this stale delivery.',
+        ];
+    });
+    $connector->shouldNotReceive('acknowledge');
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->once()->andReturn($connector);
+    $processor = Mockery::mock(EmailProcessorService::class);
+    $processor->shouldNotReceive('processInboundEmail');
+
+    (new ProcessInboundEmailJob($providerReference, $mailbox->id, $oldToken))
+        ->handle($processor, $connectorFactory, null, $claimService);
+
+    expect(InboundEmailClaim::query()->sole()->claim_token)->toBe($newToken)
+        ->and(InboundEmailReceipt::query()->count())->toBe(0)
+        ->and(Ticket::query()->count())->toBe(0);
+});
+
+test('the final queue failure hook defers reclaiming the owned lease', function () {
+    config([
+        'inbound.claim_lease_seconds' => 120,
+        'inbound.retry_base_seconds' => 60,
+    ]);
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'gmail:failed-hook',
+        'provider_remote_id' => 'failed-hook',
+    ];
+    $claimService = app(InboundEmailClaimService::class);
+    $claimToken = (string) Str::uuid();
+    expect($claimService->acquire($mailbox->id, $providerReference['provider_message_id'], $claimToken))->toBeTrue();
+
+    (new ProcessInboundEmailJob($providerReference, $mailbox->id, $claimToken))
+        ->failed(new RuntimeException('Final attempt failed'));
+
+    $claim = InboundEmailClaim::query()->sole();
+    expect($claim->failure_count)->toBe(1)
+        ->and($claim->retry_not_before?->isFuture())->toBeTrue()
+        ->and($claimService->acquire(
+            $mailbox->id,
+            $providerReference['provider_message_id'],
+            (string) Str::uuid(),
+        ))->toBeFalse();
+});
+
+test('a claimed job releases its lease only after acknowledgement', function () {
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'gmail:claimed-success',
+        'provider_remote_id' => 'claimed-success',
+    ];
+    $email = [
+        ...$providerReference,
+        'from_email' => 'customer@example.com',
+        'subject' => 'Claimed success',
+        'body_text' => 'Process this once.',
+    ];
+    $claimService = app(InboundEmailClaimService::class);
+    $claimToken = (string) Str::uuid();
+    expect($claimService->acquire($mailbox->id, $providerReference['provider_message_id'], $claimToken))->toBeTrue();
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->once()->andReturnTrue();
+    $connector->shouldReceive('fetchEmail')->once()->with($providerReference)->andReturn($email);
+    $connector->shouldReceive('acknowledge')->once()->with($email)->andReturnTrue();
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->once()->andReturn($connector);
+
+    (new ProcessInboundEmailJob($providerReference, $mailbox->id, $claimToken))
+        ->handle(app(EmailProcessorService::class), $connectorFactory, null, $claimService);
+
+    expect(InboundEmailClaim::query()->count())->toBe(0)
+        ->and(InboundEmailReceipt::query()->count())->toBe(1)
+        ->and(Message::query()->count())->toBe(1);
+});
+
+test('a claimed terminal rejection is acknowledged and releases its lease', function () {
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'gmail:claimed-rejection',
+        'provider_remote_id' => 'claimed-rejection',
+    ];
+    $email = [
+        ...$providerReference,
+        'from_email' => "attacker@example.com\0invalid",
+        'subject' => 'Malformed metadata',
+        'body_text' => 'Reject this once.',
+    ];
+    $claimService = app(InboundEmailClaimService::class);
+    $claimToken = (string) Str::uuid();
+    expect($claimService->acquire($mailbox->id, $providerReference['provider_message_id'], $claimToken))->toBeTrue();
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->once()->andReturnTrue();
+    $connector->shouldReceive('fetchEmail')->once()->with($providerReference)->andReturn($email);
+    $connector->shouldReceive('acknowledge')->once()->with($email)->andReturnTrue();
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->once()->andReturn($connector);
+
+    (new ProcessInboundEmailJob($providerReference, $mailbox->id, $claimToken))
+        ->handle(app(EmailProcessorService::class), $connectorFactory, null, $claimService);
+
+    expect(InboundEmailClaim::query()->count())->toBe(0)
+        ->and(InboundEmailReceipt::query()->sole()->disposition)->toBe('rejected')
+        ->and(Ticket::query()->count())->toBe(0);
 });
 
 test('processing jobs reject hydrated message or attachment data at the queue boundary', function () {
@@ -153,18 +479,23 @@ test('acknowledgement failure retries without duplicating committed processing',
     $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
     $connectorFactory->shouldReceive('make')->twice()->andReturn($connector);
     $processor = app(EmailProcessorService::class);
-    $job = new ProcessInboundEmailJob($providerReference, $mailbox->id);
+    $claimService = app(InboundEmailClaimService::class);
+    $claimToken = (string) Str::uuid();
+    expect($claimService->acquire($mailbox->id, $providerReference['provider_message_id'], $claimToken))->toBeTrue();
+    $job = new ProcessInboundEmailJob($providerReference, $mailbox->id, $claimToken);
 
-    expect(fn () => $job->handle($processor, $connectorFactory))
+    expect(fn () => $job->handle($processor, $connectorFactory, null, $claimService))
         ->toThrow(RuntimeException::class, 'Unable to acknowledge the processed provider message.');
 
     expect(InboundEmailReceipt::count())->toBe(1)
+        ->and(InboundEmailClaim::count())->toBe(1)
         ->and(Ticket::count())->toBe(1)
         ->and(Message::count())->toBe(1);
 
-    $job->handle($processor, $connectorFactory);
+    $job->handle($processor, $connectorFactory, null, $claimService);
 
     expect(InboundEmailReceipt::count())->toBe(1)
+        ->and(InboundEmailClaim::count())->toBe(0)
         ->and(Ticket::count())->toBe(1)
         ->and(Message::count())->toBe(1);
 });

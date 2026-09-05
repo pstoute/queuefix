@@ -24,12 +24,16 @@ class GmailConnector implements InboundEmailConnector
 
     private InboundBodyPolicy $bodyPolicy;
 
+    private InboundEmailPollingPolicy $pollingPolicy;
+
     public function __construct(
         ?InboundAttachmentPolicy $attachmentPolicy = null,
         ?InboundBodyPolicy $bodyPolicy = null,
+        ?InboundEmailPollingPolicy $pollingPolicy = null,
     ) {
         $this->attachmentPolicy = $attachmentPolicy ?? new InboundAttachmentPolicy;
         $this->bodyPolicy = $bodyPolicy ?? new InboundBodyPolicy;
+        $this->pollingPolicy = $pollingPolicy ?? new InboundEmailPollingPolicy;
     }
 
     public function connect(Mailbox $mailbox): bool
@@ -80,7 +84,7 @@ class GmailConnector implements InboundEmailConnector
 
             $results = $this->service->users_messages->listUsersMessages('me', [
                 'q' => $query,
-                'maxResults' => 50,
+                'maxResults' => $this->pollingPolicy->scanSize(),
             ]);
 
             foreach ($results->getMessages() as $msgRef) {

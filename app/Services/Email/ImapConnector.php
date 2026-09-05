@@ -19,12 +19,16 @@ class ImapConnector implements InboundEmailConnector
 
     private InboundBodyPolicy $bodyPolicy;
 
+    private InboundEmailPollingPolicy $pollingPolicy;
+
     public function __construct(
         ?InboundAttachmentPolicy $attachmentPolicy = null,
         ?InboundBodyPolicy $bodyPolicy = null,
+        ?InboundEmailPollingPolicy $pollingPolicy = null,
     ) {
         $this->attachmentPolicy = $attachmentPolicy ?? new InboundAttachmentPolicy;
         $this->bodyPolicy = $bodyPolicy ?? new InboundBodyPolicy;
+        $this->pollingPolicy = $pollingPolicy ?? new InboundEmailPollingPolicy;
     }
 
     public function connect(Mailbox $mailbox): bool
@@ -80,18 +84,48 @@ class ImapConnector implements InboundEmailConnector
             return;
         }
 
-        // Unseen state is the retry cursor. A timestamp filter could permanently
-        // skip a message whose dispatch or acknowledgement previously failed.
-        $criteria = 'UNSEEN';
-
-        $emails = imap_search($this->connection, $criteria);
-
-        if (! $emails) {
+        $messageCount = imap_num_msg($this->connection);
+        if ($messageCount < 1) {
             return;
         }
 
-        foreach ($emails as $emailNumber) {
-            $uid = imap_uid($this->connection, $emailNumber);
+        $windowSize = $this->pollingPolicy->scanSize();
+        $windowStart = max(1, (int) ($this->mailbox->imap_poll_cursor ?? 1));
+        if ($windowStart > $messageCount) {
+            $windowStart = 1;
+        }
+        $windowEnd = min($messageCount, $windowStart + $windowSize - 1);
+
+        // Fetch one bounded server-side sequence window per poll. The durable
+        // cursor rotates through large inboxes so older unread messages cannot
+        // be permanently hidden behind a hot prefix.
+        $overviews = imap_fetch_overview($this->connection, "{$windowStart}:{$windowEnd}");
+        $nextWindowStart = $windowEnd >= $messageCount ? 1 : $windowEnd + 1;
+        Mailbox::query()->whereKey($this->mailbox->id)->update(['imap_poll_cursor' => $nextWindowStart]);
+        $this->mailbox->imap_poll_cursor = $nextWindowStart;
+
+        if (! $overviews) {
+            return;
+        }
+
+        foreach ($overviews as $overview) {
+            if ((bool) ($overview->seen ?? false)) {
+                continue;
+            }
+
+            $emailNumber = filter_var($overview->msgno ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1],
+            ]);
+            if ($emailNumber === false) {
+                continue;
+            }
+
+            $uid = filter_var($overview->uid ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1],
+            ]);
+            if ($uid === false) {
+                $uid = imap_uid($this->connection, $emailNumber);
+            }
 
             if ($uid && $this->uidValidity) {
                 yield [

@@ -112,7 +112,7 @@ class EmailProcessorService
             throw new UnexpectedValueException('Inbound email is missing its provider message identity.');
         }
 
-        return hash('sha256', $mailbox->id."\0".$providerMessageId);
+        return InboundEmailIdentity::key($mailbox->id, $providerMessageId);
     }
 
     private function findReceipt(Mailbox $mailbox, string $idempotencyKey): ?InboundEmailReceipt

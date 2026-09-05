@@ -23,12 +23,16 @@ class MicrosoftGraphConnector implements InboundEmailConnector
 
     private InboundBodyPolicy $bodyPolicy;
 
+    private InboundEmailPollingPolicy $pollingPolicy;
+
     public function __construct(
         ?InboundAttachmentPolicy $attachmentPolicy = null,
         ?InboundBodyPolicy $bodyPolicy = null,
+        ?InboundEmailPollingPolicy $pollingPolicy = null,
     ) {
         $this->attachmentPolicy = $attachmentPolicy ?? new InboundAttachmentPolicy;
         $this->bodyPolicy = $bodyPolicy ?? new InboundBodyPolicy;
+        $this->pollingPolicy = $pollingPolicy ?? new InboundEmailPollingPolicy;
     }
 
     public function connect(Mailbox $mailbox): bool
@@ -107,7 +111,7 @@ class MicrosoftGraphConnector implements InboundEmailConnector
             $response = $this->client()
                 ->get("{$this->baseUrl}/me/messages", [
                     '$filter' => $filter,
-                    '$top' => 50,
+                    '$top' => $this->pollingPolicy->scanSize(),
                     '$orderby' => 'receivedDateTime desc',
                     '$select' => 'id',
                 ]);

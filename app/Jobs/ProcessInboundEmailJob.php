@@ -6,6 +6,8 @@ use App\Models\InboundEmailReceipt;
 use App\Models\Mailbox;
 use App\Services\Email\EmailProcessorService;
 use App\Services\Email\InboundBodyPolicy;
+use App\Services\Email\InboundEmailClaimService;
+use App\Services\Email\InboundEmailIdentity;
 use App\Services\Email\MailboxConnectorFactory;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -25,10 +27,15 @@ class ProcessInboundEmailJob implements ShouldQueue
 
     public int $backoff = 30;
 
+    public int $timeout = 60;
+
+    public bool $failOnTimeout = true;
+
     /** @param array<string, mixed> $providerReference */
     public function __construct(
         private array $providerReference,
         private string $mailboxId,
+        private ?string $claimToken = null,
     ) {
         $allowedKeys = ['provider_message_id', 'provider_remote_id', 'uid_validity'];
 
@@ -67,13 +74,30 @@ class ProcessInboundEmailJob implements ShouldQueue
         if (! Str::isUuid($mailboxId)) {
             throw new InvalidArgumentException('Queued inbound email references require a valid mailbox UUID.');
         }
+
+        if ($claimToken !== null && ! Str::isUuid($claimToken)) {
+            throw new InvalidArgumentException('Queued inbound email claims require a valid ownership token.');
+        }
+    }
+
+    public function providerMessageId(): string
+    {
+        return trim((string) $this->providerReference['provider_message_id']);
     }
 
     public function handle(
         EmailProcessorService $processor,
         MailboxConnectorFactory $connectorFactory,
         ?InboundBodyPolicy $bodyPolicy = null,
+        ?InboundEmailClaimService $claimService = null,
     ): void {
+        $claimService ??= app(InboundEmailClaimService::class);
+
+        if ($this->claimToken !== null
+            && ! $claimService->renew($this->mailboxId, $this->providerMessageId(), $this->claimToken)) {
+            return;
+        }
+
         $mailbox = Mailbox::find($this->mailboxId);
 
         if (! $mailbox) {
@@ -89,14 +113,19 @@ class ProcessInboundEmailJob implements ShouldQueue
                 throw new RuntimeException('Unable to connect to the mailbox for message processing.');
             }
 
-            $expectedIdentity = trim((string) ($this->providerReference['provider_message_id'] ?? ''));
+            if ($this->claimToken !== null
+                && ! $claimService->renew($this->mailboxId, $this->providerMessageId(), $this->claimToken)) {
+                return;
+            }
+
+            $expectedIdentity = $this->providerMessageId();
             if ($expectedIdentity === '') {
                 throw new UnexpectedValueException('The queued provider reference is missing its stable identity.');
             }
 
             $receiptExists = InboundEmailReceipt::query()
                 ->where('mailbox_id', $mailbox->id)
-                ->where('idempotency_key', hash('sha256', $mailbox->id."\0".$expectedIdentity))
+                ->where('idempotency_key', InboundEmailIdentity::key($mailbox->id, $expectedIdentity))
                 ->exists();
             $acknowledgementData = $this->providerReference;
 
@@ -118,12 +147,26 @@ class ProcessInboundEmailJob implements ShouldQueue
                     throw new UnexpectedValueException('The hydrated provider message identity did not match its queued reference.');
                 }
 
+                if ($this->claimToken !== null
+                    && ! $claimService->renew($this->mailboxId, $this->providerMessageId(), $this->claimToken)) {
+                    return;
+                }
+
                 $processor->processInboundEmail($emailData, $mailbox);
                 $acknowledgementData = $emailData;
             }
 
+            if ($this->claimToken !== null
+                && ! $claimService->renew($this->mailboxId, $this->providerMessageId(), $this->claimToken)) {
+                return;
+            }
+
             if (! $connector->acknowledge($acknowledgementData)) {
                 throw new RuntimeException('Unable to acknowledge the processed provider message.');
+            }
+
+            if ($this->claimToken !== null) {
+                $claimService->release($mailbox->id, $expectedIdentity, $this->claimToken);
             }
         } catch (\Throwable $e) {
             Log::error('Failed to process inbound email', [
@@ -134,5 +177,18 @@ class ProcessInboundEmailJob implements ShouldQueue
 
             throw $e;
         }
+    }
+
+    public function failed(?\Throwable $exception): void
+    {
+        if ($this->claimToken === null) {
+            return;
+        }
+
+        app(InboundEmailClaimService::class)->deferAfterFinalFailure(
+            $this->mailboxId,
+            $this->providerMessageId(),
+            $this->claimToken,
+        );
     }
 }
