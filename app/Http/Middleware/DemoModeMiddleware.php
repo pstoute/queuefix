@@ -18,6 +18,7 @@ class DemoModeMiddleware
         'settings.mailboxes.update',
         'settings.mailboxes.destroy',
         'settings.mailboxes.test',
+        'settings.mailboxes.fetch',
         'settings.sla.store',
         'settings.sla.update',
         'settings.sla.destroy',

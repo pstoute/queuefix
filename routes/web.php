@@ -122,7 +122,8 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('settings')->name('sett
         ->name('statuses.restore');
 
     Route::resource('mailboxes', MailboxController::class)->except(['show']);
-    Route::post('mailboxes/{mailbox}/test', [MailboxController::class, 'test'])->name('mailboxes.test');
+    Route::post('mailboxes/{mailbox}/test', [MailboxController::class, 'test'])->middleware('throttle:6,1')->name('mailboxes.test');
+    Route::post('mailboxes/{mailbox}/fetch', [MailboxController::class, 'fetchNow'])->middleware('throttle:12,1')->name('mailboxes.fetch');
 
     Route::get('sla', [SlaController::class, 'index'])->name('sla.index');
     Route::post('sla', [SlaController::class, 'store'])->name('sla.store');

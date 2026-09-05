@@ -104,6 +104,21 @@ Active escalation rules are evaluated once per minute by the Laravel scheduler, 
 
 Rules use an allowlisted JSON schema. Version 1 supports assignment, priority/status changes, internal notes, tag changes, and database notifications; it does not execute arbitrary code or send webhooks. Closed tickets require an explicit rule opt-in. Archived merged sources also require an explicit opt-in and permit notification actions only, preserving their immutable history.
 
+### Mailbox ingestion health and retries
+
+Mailbox health in **Settings > Mailboxes** is derived from persisted fetch attempts, successful fetches, sanitized error categories, retry time, queue claims, and pending processing counts. The scheduler evaluates due mailboxes every minute, but each mailbox is claimed before dispatch and protected by a second per-mailbox worker lock. **Fetch now** uses the same claim and queued job, so it cannot overlap an existing import. Claims older than 15 minutes are treated as stale and can be recovered.
+
+Provider failures use the following retry policy:
+
+| Category | Retry policy |
+| --- | --- |
+| Authentication or configuration | Retry after 60 minutes so an administrator can repair credentials or settings; a manual fetch can test the repair immediately. |
+| Transient provider failure | Exponential backoff from 5 minutes, capped at 240 minutes. |
+| Other provider rejection | Exponential backoff from 15 minutes, capped at 360 minutes. |
+| Processing or dispatch failure | Exponential backoff from 5 minutes, capped at 120 minutes. |
+
+A successful provider fetch clears its fetch failure state, updates the success time, records a provider cursor where the connector exposes one, and schedules the next normal polling interval. Persisted and rendered error messages are deliberately generic: credentials, tokens, provider response bodies, exception text, and email content are never copied into health state or application logs.
+
 ### Generic IMAP/SMTP
 
 1. Go to **Settings > Mailboxes > Add Mailbox**

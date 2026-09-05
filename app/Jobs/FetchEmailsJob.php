@@ -2,75 +2,93 @@
 
 namespace App\Jobs;
 
-use App\Enums\MailboxType;
+use App\Exceptions\MailboxFetchException;
 use App\Models\Mailbox;
-use App\Services\Email\EmailProcessorService;
-use App\Services\Email\GmailConnector;
-use App\Services\Email\ImapConnector;
-use App\Services\Email\MicrosoftGraphConnector;
+use App\Services\Email\MailboxConnectorFactory;
+use App\Services\MailboxFetchStateService;
+use Carbon\Carbon;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class FetchEmailsJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 3;
-
-    public int $backoff = 60;
+    public int $tries = 1;
 
     public function __construct(
         private string $mailboxId,
     ) {}
 
-    public function handle(EmailProcessorService $processor): void
+    /** @return list<object> */
+    public function middleware(): array
     {
-        $mailbox = Mailbox::find($this->mailboxId);
+        return [(new WithoutOverlapping("mailbox-fetch:{$this->mailboxId}"))->dontRelease()->expireAfter(900)];
+    }
+
+    public function handle(MailboxConnectorFactory $connectors, MailboxFetchStateService $state): void
+    {
+        $mailbox = Mailbox::query()->find($this->mailboxId);
 
         if (! $mailbox || ! $mailbox->is_active) {
-            return;
-        }
-
-        $connector = $this->getConnector($mailbox);
-
-        if (! $connector) {
-            Log::error('No connector available for mailbox type', [
-                'mailbox_id' => $mailbox->id,
-                'type' => $mailbox->type->value,
+            Mailbox::query()->whereKey($this->mailboxId)->update([
+                'fetch_queued_at' => null,
+                'fetch_started_at' => null,
             ]);
 
             return;
         }
 
-        if (! $connector->connect($mailbox)) {
-            Log::error('Failed to connect to mailbox', ['mailbox_id' => $mailbox->id]);
+        $mailbox = $state->start($mailbox);
 
-            return;
-        }
-
-        $emails = $connector->fetchNewEmails($mailbox->last_checked_at);
-
-        foreach ($emails as $emailData) {
-            try {
-                ProcessInboundEmailJob::dispatch($emailData, $mailbox->id);
-            } catch (\Throwable $e) {
-                Log::error('Failed to dispatch email processing', [
-                    'mailbox_id' => $mailbox->id,
-                    'error' => $e->getMessage(),
-                ]);
+        try {
+            $connector = $connectors->resolve($mailbox);
+            if (! $connector->connect($mailbox)) {
+                throw $connector->lastFailure() ?? new MailboxFetchException(
+                    MailboxFetchException::CATEGORY_PROVIDER,
+                    ((string) $mailbox->getRawOriginal('type')).'_connection_failed',
+                    'The mailbox connection failed.',
+                );
             }
+
+            $lastSuccess = $mailbox->last_fetch_succeeded_at ?? $mailbox->last_checked_at;
+            $emails = $connector->fetchNewEmails($lastSuccess !== null ? Carbon::parse($lastSuccess) : null);
+            foreach ($emails as $emailData) {
+                $mailbox->increment('pending_inbound_count');
+
+                try {
+                    ProcessInboundEmailJob::dispatch($emailData, $mailbox->id);
+                } catch (Throwable) {
+                    Mailbox::query()->whereKey($mailbox->id)->update([
+                        'pending_inbound_count' => DB::raw('CASE WHEN pending_inbound_count > 0 THEN pending_inbound_count - 1 ELSE 0 END'),
+                    ]);
+
+                    throw MailboxFetchException::processing();
+                }
+            }
+
+            $state->succeed($mailbox, $connector->providerCursor());
+
+            Log::info('Mailbox fetch completed', [
+                'mailbox_id' => $mailbox->id,
+                'fetched_count' => count($emails),
+            ]);
+        } catch (Throwable $exception) {
+            $failure = $exception instanceof MailboxFetchException
+                ? $exception
+                : MailboxFetchException::classify($exception, (string) $mailbox->getRawOriginal('type'), 'fetch');
+            $retryAt = $state->fail($mailbox, $failure);
+
+            Log::warning('Mailbox fetch failed', [
+                'mailbox_id' => $mailbox->id,
+                'error_category' => $failure->category,
+                'error_code' => $failure->errorCode,
+                'retry_at' => $retryAt->format(DATE_ATOM),
+            ]);
         }
-
-        $mailbox->update(['last_checked_at' => now()]);
-    }
-
-    private function getConnector(Mailbox $mailbox): ImapConnector|GmailConnector|MicrosoftGraphConnector|null
-    {
-        return match ($mailbox->type) {
-            MailboxType::Imap => app(ImapConnector::class),
-            MailboxType::Gmail => app(GmailConnector::class),
-            MailboxType::Microsoft => app(MicrosoftGraphConnector::class),
-        };
     }
 }

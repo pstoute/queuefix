@@ -61,30 +61,6 @@ parameters:
 			path: app/Http/Controllers/Settings/MailboxController.php
 
 		-
-			message: '#^Match arm comparison between ''gmail''\|''imap''\|''microsoft'' and App\\Enums\\MailboxType\:\:Gmail is always false\.$#'
-			identifier: match.alwaysFalse
-			count: 1
-			path: app/Http/Controllers/Settings/MailboxController.php
-
-		-
-			message: '#^Match arm comparison between ''gmail''\|''imap''\|''microsoft'' and App\\Enums\\MailboxType\:\:Imap is always false\.$#'
-			identifier: match.alwaysFalse
-			count: 1
-			path: app/Http/Controllers/Settings/MailboxController.php
-
-		-
-			message: '#^Match arm comparison between ''gmail''\|''imap''\|''microsoft'' and App\\Enums\\MailboxType\:\:Microsoft is always false\.$#'
-			identifier: match.alwaysFalse
-			count: 1
-			path: app/Http/Controllers/Settings/MailboxController.php
-
-		-
-			message: '#^Match expression does not handle remaining values\: ''gmail''\|''imap''\|''microsoft''$#'
-			identifier: match.unhandled
-			count: 1
-			path: app/Http/Controllers/Settings/MailboxController.php
-
-		-
 			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,App\\Models\\Mailbox\>\:\:map\(\) contains unresolvable type\.$#'
 			identifier: argument.unresolvableType
 			count: 1
@@ -131,42 +107,6 @@ parameters:
 			identifier: deadCode.unreachable
 			count: 1
 			path: app/Http/Middleware/EnsureAdmin.php
-
-		-
-			message: '#^Cannot access property \$value on string\.$#'
-			identifier: property.nonObject
-			count: 1
-			path: app/Jobs/FetchEmailsJob.php
-
-		-
-			message: '#^Match arm comparison between ''gmail''\|''imap''\|''microsoft'' and App\\Enums\\MailboxType\:\:Gmail is always false\.$#'
-			identifier: match.alwaysFalse
-			count: 1
-			path: app/Jobs/FetchEmailsJob.php
-
-		-
-			message: '#^Match arm comparison between ''gmail''\|''imap''\|''microsoft'' and App\\Enums\\MailboxType\:\:Imap is always false\.$#'
-			identifier: match.alwaysFalse
-			count: 1
-			path: app/Jobs/FetchEmailsJob.php
-
-		-
-			message: '#^Match arm comparison between ''gmail''\|''imap''\|''microsoft'' and App\\Enums\\MailboxType\:\:Microsoft is always false\.$#'
-			identifier: match.alwaysFalse
-			count: 1
-			path: app/Jobs/FetchEmailsJob.php
-
-		-
-			message: '#^Match expression does not handle remaining values\: ''gmail''\|''imap''\|''microsoft''$#'
-			identifier: match.unhandled
-			count: 1
-			path: app/Jobs/FetchEmailsJob.php
-
-		-
-			message: '#^Parameter \#1 \$since of method App\\Services\\Email\\GmailConnector\:\:fetchNewEmails\(\) expects DateTimeInterface\|null, string\|null given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Jobs/FetchEmailsJob.php
 
 		-
 			message: '#^Method App\\Jobs\\ProcessInboundEmailJob\:\:__construct\(\) has parameter \$emailData with no value type specified in iterable type array\.$#'
@@ -529,12 +469,6 @@ parameters:
 			path: app/Services/Email/GmailConnector.php
 
 		-
-			message: '#^Method App\\Services\\Email\\GmailConnector\:\:fetchNewEmails\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/Email/GmailConnector.php
-
-		-
 			message: '#^Method App\\Services\\Email\\GmailConnector\:\:parseMessage\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -547,21 +481,9 @@ parameters:
 			path: app/Services/Email/GmailConnector.php
 
 		-
-			message: '#^Method App\\Services\\Email\\GmailConnector\:\:testConnection\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/Email/GmailConnector.php
-
-		-
 			message: '#^Call to an undefined method App\\Models\\Mailbox\:\:getDecryptedCredential\(\)\.$#'
 			identifier: method.notFound
 			count: 6
-			path: app/Services/Email/ImapConnector.php
-
-		-
-			message: '#^Method App\\Services\\Email\\ImapConnector\:\:fetchNewEmails\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
 			path: app/Services/Email/ImapConnector.php
 
 		-
@@ -584,12 +506,6 @@ parameters:
 
 		-
 			message: '#^Method App\\Services\\Email\\ImapConnector\:\:sendEmail\(\) has parameter \$data with no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/Email/ImapConnector.php
-
-		-
-			message: '#^Method App\\Services\\Email\\ImapConnector\:\:testConnection\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: app/Services/Email/ImapConnector.php
@@ -655,12 +571,6 @@ parameters:
 			path: app/Services/Email/MicrosoftGraphConnector.php
 
 		-
-			message: '#^Method App\\Services\\Email\\MicrosoftGraphConnector\:\:fetchNewEmails\(\) return type has no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/Email/MicrosoftGraphConnector.php
-
-		-
 			message: '#^Method App\\Services\\Email\\MicrosoftGraphConnector\:\:parseMessage\(\) has parameter \$msg with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -674,12 +584,6 @@ parameters:
 
 		-
 			message: '#^Method App\\Services\\Email\\MicrosoftGraphConnector\:\:sendEmail\(\) has parameter \$data with no value type specified in iterable type array\.$#'
-			identifier: missingType.iterableValue
-			count: 1
-			path: app/Services/Email/MicrosoftGraphConnector.php
-
-		-
-			message: '#^Method App\\Services\\Email\\MicrosoftGraphConnector\:\:testConnection\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
 			path: app/Services/Email/MicrosoftGraphConnector.php

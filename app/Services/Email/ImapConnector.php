@@ -2,18 +2,26 @@
 
 namespace App\Services\Email;
 
+use App\Contracts\MailboxConnector;
+use App\Exceptions\MailboxFetchException;
 use App\Models\Mailbox;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
-class ImapConnector
+class ImapConnector implements MailboxConnector
 {
     private $connection;
 
     private Mailbox $mailbox;
 
+    private ?MailboxFetchException $lastFailure = null;
+
+    private ?string $providerCursor = null;
+
     public function connect(Mailbox $mailbox): bool
     {
         $this->mailbox = $mailbox;
+        $this->lastFailure = null;
         $settings = $mailbox->incoming_settings;
 
         $host = $settings['host'] ?? '';
@@ -28,9 +36,14 @@ class ImapConnector
             $this->connection = @imap_open($mailboxPath, $username, $password);
 
             if (! $this->connection) {
+                $this->lastFailure = MailboxFetchException::classify(
+                    new RuntimeException(imap_last_error() ?: 'IMAP connection failed'),
+                    'imap',
+                    'connection',
+                );
                 Log::error('IMAP connection failed', [
                     'mailbox_id' => $mailbox->id,
-                    'error' => imap_last_error(),
+                    'error_code' => $this->lastFailure->errorCode,
                 ]);
 
                 return false;
@@ -38,9 +51,10 @@ class ImapConnector
 
             return true;
         } catch (\Throwable $e) {
+            $this->lastFailure = MailboxFetchException::classify($e, 'imap', 'connection');
             Log::error('IMAP connection error', [
                 'mailbox_id' => $mailbox->id,
-                'error' => $e->getMessage(),
+                'error_code' => $this->lastFailure->errorCode,
             ]);
 
             return false;
@@ -50,7 +64,11 @@ class ImapConnector
     public function fetchNewEmails(?\DateTimeInterface $since = null): array
     {
         if (! $this->connection) {
-            return [];
+            throw $this->lastFailure ?? new MailboxFetchException(
+                MailboxFetchException::CATEGORY_CONFIGURATION,
+                'imap_not_connected',
+                'The IMAP connector is not connected.',
+            );
         }
 
         $criteria = $since
@@ -68,11 +86,15 @@ class ImapConnector
         foreach ($emails as $emailNumber) {
             try {
                 $messages[] = $this->parseEmail($emailNumber);
+                $uid = imap_uid($this->connection, $emailNumber);
+                if ($uid !== false && ($this->providerCursor === null || (int) $uid > (int) $this->providerCursor)) {
+                    $this->providerCursor = (string) $uid;
+                }
             } catch (\Throwable $e) {
                 Log::warning('Failed to parse email', [
                     'mailbox_id' => $this->mailbox->id,
                     'email_number' => $emailNumber,
-                    'error' => $e->getMessage(),
+                    'error_code' => 'imap_message_parse_failed',
                 ]);
             }
         }
@@ -266,7 +288,7 @@ class ImapConnector
         } catch (\Throwable $e) {
             Log::error('Failed to send SMTP email', [
                 'mailbox_id' => $this->mailbox->id,
-                'error' => $e->getMessage(),
+                'error_code' => MailboxFetchException::classify($e, 'imap', 'send')->errorCode,
             ]);
 
             return false;
@@ -283,7 +305,21 @@ class ImapConnector
             return ['success' => true, 'message' => 'Connection successful'];
         }
 
-        return ['success' => false, 'message' => imap_last_error() ?: 'Connection failed'];
+        return ['success' => false, 'message' => ($this->lastFailure ?? new MailboxFetchException(
+            MailboxFetchException::CATEGORY_PROVIDER,
+            'imap_connection_failed',
+            'The IMAP connection test failed.',
+        ))->getMessage()];
+    }
+
+    public function lastFailure(): ?MailboxFetchException
+    {
+        return $this->lastFailure;
+    }
+
+    public function providerCursor(): ?string
+    {
+        return $this->providerCursor;
     }
 
     public function disconnect(): void

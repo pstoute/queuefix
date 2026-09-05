@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Enums\MailboxType;
 use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Ticket;
@@ -94,10 +95,10 @@ class SendEmailReplyJob implements ShouldQueue
 
     private function getConnector(Mailbox $mailbox): ImapConnector|GmailConnector|MicrosoftGraphConnector
     {
-        return match ($mailbox->type) {
-            'imap' => app(ImapConnector::class),
-            'gmail' => app(GmailConnector::class),
-            'microsoft' => app(MicrosoftGraphConnector::class),
+        return match (MailboxType::from((string) $mailbox->getRawOriginal('type'))) {
+            MailboxType::Imap => app(ImapConnector::class),
+            MailboxType::Gmail => app(GmailConnector::class),
+            MailboxType::Microsoft => app(MicrosoftGraphConnector::class),
         };
     }
 }

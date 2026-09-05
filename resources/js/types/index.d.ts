@@ -213,7 +213,26 @@ export interface Mailbox {
     aliases?: MailboxAlias[];
     polling_interval: number;
     is_active: boolean;
-    last_checked_at?: string;
+    last_checked_at?: string | null;
+    last_fetch_attempted_at?: string | null;
+    last_fetch_succeeded_at?: string | null;
+    provider_cursor?: string | null;
+    consecutive_fetch_failures: number;
+    last_fetch_error_category?: 'authentication' | 'transient' | 'provider' | 'processing' | 'configuration' | null;
+    last_fetch_error_code?: string | null;
+    last_fetch_error_message?: string | null;
+    next_fetch_at?: string | null;
+    last_processing_failed_at?: string | null;
+    last_processing_error_code?: string | null;
+    last_processing_error_message?: string | null;
+    health_status: 'inactive' | 'authentication_required' | 'fetch_failing' | 'processing_failing' | 'fetching' | 'queued' | 'never_fetched' | 'stale' | 'healthy';
+    queue: {
+        status: 'idle' | 'queued' | 'running';
+        queued_at?: string | null;
+        started_at?: string | null;
+        pending_messages: number;
+        processing_failures: number;
+    };
     created_at: string;
     updated_at: string;
 }

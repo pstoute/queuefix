@@ -2,11 +2,13 @@
 
 namespace App\Services\Email;
 
+use App\Contracts\MailboxConnector;
+use App\Exceptions\MailboxFetchException;
 use App\Models\Mailbox;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class MicrosoftGraphConnector
+class MicrosoftGraphConnector implements MailboxConnector
 {
     private Mailbox $mailbox;
 
@@ -14,18 +16,24 @@ class MicrosoftGraphConnector
 
     private ?string $accessToken = null;
 
+    private ?MailboxFetchException $lastFailure = null;
+
     public function connect(Mailbox $mailbox): bool
     {
         $this->mailbox = $mailbox;
+        $this->lastFailure = null;
 
         try {
             $this->accessToken = $this->getAccessToken();
 
             return $this->accessToken !== null;
         } catch (\Throwable $e) {
+            $this->lastFailure = $e instanceof MailboxFetchException
+                ? $e
+                : MailboxFetchException::classify($e, 'microsoft', 'connection');
             Log::error('Microsoft Graph connection error', [
                 'mailbox_id' => $mailbox->id,
-                'error' => $e->getMessage(),
+                'error_code' => $this->lastFailure->errorCode,
             ]);
 
             return false;
@@ -43,7 +51,11 @@ class MicrosoftGraphConnector
         }
 
         if (! $refreshToken) {
-            return null;
+            throw new MailboxFetchException(
+                MailboxFetchException::CATEGORY_AUTHENTICATION,
+                'microsoft_oauth_refresh_missing',
+                'Authentication must be renewed before this mailbox can be accessed.',
+            );
         }
 
         $response = Http::asForm()->post(
@@ -66,18 +78,17 @@ class MicrosoftGraphConnector
             return $data['access_token'];
         }
 
-        Log::error('Microsoft Graph token refresh failed', [
-            'mailbox_id' => $this->mailbox->id,
-            'response' => $response->body(),
-        ]);
-
-        return null;
+        throw MailboxFetchException::fromHttpStatus('microsoft', 'token_refresh', $response->status());
     }
 
     public function fetchNewEmails(?\DateTimeInterface $since = null): array
     {
         if (! $this->accessToken) {
-            return [];
+            throw $this->lastFailure ?? new MailboxFetchException(
+                MailboxFetchException::CATEGORY_CONFIGURATION,
+                'microsoft_not_connected',
+                'The Microsoft connector is not connected.',
+            );
         }
 
         try {
@@ -95,12 +106,7 @@ class MicrosoftGraphConnector
                 ]);
 
             if (! $response->successful()) {
-                Log::error('Microsoft Graph fetch error', [
-                    'mailbox_id' => $this->mailbox->id,
-                    'response' => $response->body(),
-                ]);
-
-                return [];
+                throw MailboxFetchException::fromHttpStatus('microsoft', 'fetch', $response->status());
             }
 
             $messages = [];
@@ -117,19 +123,24 @@ class MicrosoftGraphConnector
                     Log::warning('Failed to parse Graph message', [
                         'mailbox_id' => $this->mailbox->id,
                         'message_id' => $msg['id'] ?? 'unknown',
-                        'error' => $e->getMessage(),
+                        'error_code' => 'microsoft_message_parse_failed',
                     ]);
                 }
             }
 
             return $messages;
         } catch (\Throwable $e) {
+            if ($e instanceof MailboxFetchException) {
+                throw $e;
+            }
+
+            $failure = MailboxFetchException::classify($e, 'microsoft', 'fetch');
             Log::error('Microsoft Graph fetch error', [
                 'mailbox_id' => $this->mailbox->id,
-                'error' => $e->getMessage(),
+                'error_code' => $failure->errorCode,
             ]);
 
-            return [];
+            throw $failure;
         }
     }
 
@@ -248,7 +259,7 @@ class MicrosoftGraphConnector
         } catch (\Throwable $e) {
             Log::error('Microsoft Graph send error', [
                 'mailbox_id' => $this->mailbox->id,
-                'error' => $e->getMessage(),
+                'error_code' => MailboxFetchException::classify($e, 'microsoft', 'send')->errorCode,
             ]);
 
             return false;
@@ -268,12 +279,30 @@ class MicrosoftGraphConnector
                     return ['success' => true, 'message' => 'Microsoft Graph connection successful'];
                 }
 
-                return ['success' => false, 'message' => 'API call failed: '.$response->body()];
+                return ['success' => false, 'message' => MailboxFetchException::fromHttpStatus('microsoft', 'test', $response->status())->getMessage()];
             } catch (\Throwable $e) {
-                return ['success' => false, 'message' => $e->getMessage()];
+                $failure = $e instanceof MailboxFetchException
+                    ? $e
+                    : MailboxFetchException::classify($e, 'microsoft', 'test');
+
+                return ['success' => false, 'message' => $failure->getMessage()];
             }
         }
 
-        return ['success' => false, 'message' => 'Failed to connect to Microsoft Graph'];
+        return ['success' => false, 'message' => ($this->lastFailure ?? new MailboxFetchException(
+            MailboxFetchException::CATEGORY_PROVIDER,
+            'microsoft_connection_failed',
+            'The Microsoft connection test failed.',
+        ))->getMessage()];
+    }
+
+    public function lastFailure(): ?MailboxFetchException
+    {
+        return $this->lastFailure;
+    }
+
+    public function providerCursor(): ?string
+    {
+        return null;
     }
 }
