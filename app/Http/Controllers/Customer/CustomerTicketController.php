@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Customer;
 
 use App\Enums\AttachmentScanStatus;
 use App\Enums\MessageType;
+use App\Enums\TicketStatus;
 use App\Exceptions\AttachmentRejected;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Customer\CustomerTicketData;
@@ -91,7 +92,17 @@ class CustomerTicketController extends Controller
 
         try {
             DB::transaction(function () use ($ticket, $validated, $customer, $request): void {
-                $message = $this->ticketService->addMessage($ticket, [
+                $lockedTicket = Ticket::query()->lockForUpdate()->findOrFail($ticket->id);
+
+                if ($lockedTicket->customer_id !== $customer->id) {
+                    abort(403);
+                }
+
+                if ($lockedTicket->getRawOriginal('status') === TicketStatus::Closed->value) {
+                    abort(409, 'Closed tickets cannot receive customer replies.');
+                }
+
+                $message = $this->ticketService->addMessage($lockedTicket, [
                     'type' => MessageType::Reply,
                     'body_text' => strip_tags($validated['body']),
                     'body_html' => $validated['body'],
