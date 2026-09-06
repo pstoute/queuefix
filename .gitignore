@@ -25,3 +25,4 @@ Homestead.yaml
 Thumbs.db
 CLAUDE_CODE_PROMPT.md
 /.claude
+/docker-compose.override.yml

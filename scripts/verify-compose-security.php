@@ -68,6 +68,7 @@ $failures = [];
 $services = $compose['services'] ?? [];
 $app = $services['app'] ?? [];
 $postgres = $services['postgres'] ?? [];
+$redis = $services['redis'] ?? [];
 $mailpit = $services['mailpit'] ?? [];
 $appEnvironment = $app['environment'] ?? [];
 $queueEnvironment = $services['queue']['environment'] ?? [];
@@ -138,6 +139,26 @@ foreach (['app', 'migrate', 'queue', 'scheduler'] as $serviceName) {
 
     if (! array_key_exists('queuefix', $networks)) {
         $failures[] = "{$serviceName} must remain attached to the queuefix network.";
+    }
+}
+
+if (($redis['ports'] ?? []) !== []) {
+    $failures[] = 'Redis must not publish any port to the Docker host.';
+}
+
+if (! array_key_exists('queuefix', $redis['networks'] ?? [])) {
+    $failures[] = 'Redis must remain attached to the private queuefix network.';
+}
+
+foreach (['app', 'queue', 'scheduler'] as $serviceName) {
+    $service = $services[$serviceName] ?? [];
+
+    if (($service['environment']['REDIS_HOST'] ?? null) !== 'redis') {
+        $failures[] = "{$serviceName} must connect to the private redis service hostname.";
+    }
+
+    if (($service['depends_on']['redis']['condition'] ?? null) !== 'service_healthy') {
+        $failures[] = "{$serviceName} must wait for the private Redis service to become healthy.";
     }
 }
 
