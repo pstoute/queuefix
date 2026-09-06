@@ -17,12 +17,21 @@ class StaffAuthenticationRevocationService
     public function revokeAll(User $user): void
     {
         $defaultConnection = (string) config('database.default');
+        $brokerName = (string) config('auth.defaults.passwords');
+        $brokerConfig = config("auth.passwords.{$brokerName}");
+
+        if (! is_array($brokerConfig)
+            || ($brokerConfig['driver'] ?? 'database') !== 'database'
+            || ! is_string($brokerConfig['table'] ?? null)
+            || $brokerConfig['table'] === '') {
+            throw new LogicException('Staff authentication revocation requires the database token repository.');
+        }
+
         $userConnection = $user->getConnectionName() ?? $defaultConnection;
         $sessionConnection = (string) (config('session.connection') ?? $defaultConnection);
-        $passwordResetConnection = (string) (
-            config('auth.passwords.'.config('auth.defaults.passwords').'.connection') ?? $defaultConnection
-        );
+        $passwordResetConnection = (string) ($brokerConfig['connection'] ?? $defaultConnection);
 
+        $this->ensureSharedConnection($userConnection, $defaultConnection, 'magic link');
         $this->ensureSharedConnection($userConnection, $sessionConnection, 'session');
         $this->ensureSharedConnection($userConnection, $passwordResetConnection, 'password reset');
 
@@ -34,6 +43,11 @@ class StaffAuthenticationRevocationService
             ->delete();
 
         $this->magicLinks->revokeStaff($user);
+
+        DB::connection($passwordResetConnection)
+            ->table($brokerConfig['table'])
+            ->where('email', $user->getEmailForPasswordReset())
+            ->delete();
     }
 
     private function ensureSharedConnection(
