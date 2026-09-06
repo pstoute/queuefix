@@ -1,4 +1,40 @@
 services:
+  application-cache:
+    image: postgres:16-alpine
+    entrypoint: ["/bin/sh", "/usr/local/bin/clear-application-config-cache"]
+    network_mode: none
+    volumes:
+      - ./docker/clear-application-config-cache.sh:/usr/local/bin/clear-application-config-cache:ro
+      - ./bootstrap/cache:/var/www/html/bootstrap/cache
+
+  database-secret:
+    image: postgres:16-alpine
+    entrypoint: ["/bin/sh", "/usr/local/bin/initialize-database-secrets"]
+    network_mode: none
+    volumes:
+      - ./docker/initialize-database-secrets.sh:/usr/local/bin/initialize-database-secrets:ro
+      - database_credentials:/run/queuefix-secrets
+
+  database-credentials:
+    image: postgres:16-alpine
+    entrypoint: ["/bin/sh", "/usr/local/bin/secure-postgres-credential"]
+    environment:
+      PGCONNECT_TIMEOUT: "5"
+      PGHOST: postgres
+      PGUSER: queuefix
+      PGDATABASE: queuefix
+      QUEUEFIX_DATABASE_PASSWORD_FILE: /run/queuefix-secrets/database-password
+    volumes:
+      - ./docker/secure-postgres-credential.sh:/usr/local/bin/secure-postgres-credential:ro
+      - database_credentials:/run/queuefix-secrets:ro
+    depends_on:
+      application-cache:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    networks:
+      - queuefix
+
   app:
     build:
       context: .
@@ -11,6 +47,7 @@ services:
       - .:/var/www/html
       - /var/www/html/vendor
       - /var/www/html/node_modules
+      - database_credentials:/run/queuefix-secrets:ro
     environment:
       - APP_ENV=local
       - DB_CONNECTION=pgsql
@@ -18,7 +55,7 @@ services:
       - DB_PORT=5432
       - DB_DATABASE=queuefix
       - DB_USERNAME=queuefix
-      - DB_PASSWORD=secret
+      - DB_PASSWORD_FILE=/run/queuefix-secrets/database-password
       - REDIS_HOST=redis
       - MAIL_MAILER=${MAIL_MAILER:-smtp}
       - MAIL_HOST=mailpit
@@ -44,6 +81,7 @@ services:
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
+      - database_credentials:/run/queuefix-secrets:ro
     environment:
       - APP_ENV=local
       - DB_CONNECTION=pgsql
@@ -51,8 +89,10 @@ services:
       - DB_PORT=5432
       - DB_DATABASE=queuefix
       - DB_USERNAME=queuefix
-      - DB_PASSWORD=secret
+      - DB_PASSWORD_FILE=/run/queuefix-secrets/database-password
     depends_on:
+      database-credentials:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     networks:
@@ -64,9 +104,13 @@ services:
     environment:
       POSTGRES_DB: queuefix
       POSTGRES_USER: queuefix
-      POSTGRES_PASSWORD: secret
+      POSTGRES_PASSWORD_FILE: /run/queuefix-secrets/database-password
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - database_credentials:/run/queuefix-secrets:ro
+    depends_on:
+      database-secret:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U queuefix"]
       interval: 5s
@@ -74,28 +118,6 @@ services:
       retries: 5
     networks:
       - queuefix
-
-  # MySQL 8.0 (alternative — uncomment this block and comment out postgres,
-  # then update the app/queue/scheduler environment to:
-  #   DB_CONNECTION=mysql, DB_HOST=mysql, DB_PORT=3306)
-  # mysql:
-  #   image: mysql:8.0
-  #   ports:
-  #     - "3306:3306"
-  #   environment:
-  #     MYSQL_DATABASE: queuefix
-  #     MYSQL_USER: queuefix
-  #     MYSQL_PASSWORD: secret
-  #     MYSQL_ROOT_PASSWORD: secret
-  #   volumes:
-  #     - mysql_data:/var/lib/mysql
-  #   healthcheck:
-  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-  #     interval: 5s
-  #     timeout: 5s
-  #     retries: 5
-  #   networks:
-  #     - queuefix
 
   redis:
     image: redis:7-alpine
@@ -126,6 +148,7 @@ services:
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
+      - database_credentials:/run/queuefix-secrets:ro
     environment:
       - APP_ENV=local
       - DB_CONNECTION=pgsql
@@ -133,7 +156,7 @@ services:
       - DB_PORT=5432
       - DB_DATABASE=queuefix
       - DB_USERNAME=queuefix
-      - DB_PASSWORD=secret
+      - DB_PASSWORD_FILE=/run/queuefix-secrets/database-password
       - REDIS_HOST=redis
       - MAIL_MAILER=${MAIL_MAILER:-smtp}
       - MAIL_HOST=mailpit
@@ -158,6 +181,7 @@ services:
     volumes:
       - .:/var/www/html
       - /var/www/html/vendor
+      - database_credentials:/run/queuefix-secrets:ro
     environment:
       - APP_ENV=local
       - DB_CONNECTION=pgsql
@@ -165,7 +189,7 @@ services:
       - DB_PORT=5432
       - DB_DATABASE=queuefix
       - DB_USERNAME=queuefix
-      - DB_PASSWORD=secret
+      - DB_PASSWORD_FILE=/run/queuefix-secrets/database-password
       - REDIS_HOST=redis
     depends_on:
       migrate:
@@ -179,7 +203,7 @@ services:
 
 volumes:
   postgres_data:
-  # mysql_data:
+  database_credentials:
   redis_data:
 
 networks:

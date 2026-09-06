@@ -203,6 +203,11 @@ jobs:
       - name: Verify Docker build context excludes local secrets
         run: bash scripts/verify-docker-build-context.sh
 
+      - name: Verify managed database credential transition
+        run: |
+          bash tests/scripts/docker-database-credential-test.sh
+          bash tests/scripts/docker-quick-start-test.sh
+
       - name: Verify Docker images build
         run: |
           docker build --target development --tag queuefix-ci-development .

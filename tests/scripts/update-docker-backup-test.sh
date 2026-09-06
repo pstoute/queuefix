@@ -98,6 +98,8 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
+printf 'docker %s\n' "$*" >> "${TEST_TRACE_DIR}/docker-commands"
+
 if [[ "${1:-}" == "compose" && "${2:-}" == "config" && "${3:-}" == "--quiet" ]]; then
   exit 0
 fi
@@ -334,6 +336,11 @@ backup_file="$(find "$success_scenario/storage/backups" -maxdepth 1 -type f -nam
 [[ "$(mode_of "$success_scenario/storage/backups")" == "700" ]] || fail "backup directory mode must be 0700"
 [[ "$(mode_of "$backup_file")" == "600" ]] || fail "backup file mode must be 0600"
 grep -Fxq 'sensitive database contents' "$backup_file" || fail "completed backup content was not retained"
+grep -Fxq 'docker compose exec -T app php artisan route:cache' "$success_scenario/trace/docker-commands" || fail "updater did not rebuild the route cache"
+grep -Fxq 'docker compose exec -T app php artisan view:cache' "$success_scenario/trace/docker-commands" || fail "updater did not rebuild the view cache"
+if grep -Fq 'php artisan optimize' "$success_scenario/trace/docker-commands"; then
+  fail "updater persisted database credentials in Laravel's configuration cache"
+fi
 [[ -z "$(find "$success_scenario/storage/backups" -maxdepth 1 -type f -name '.queuefix-*' -print -quit)" ]] || fail "successful update left a temporary backup"
 checkout_umask="$(tr -d '[:space:]' < "$success_scenario/trace/checkout-umask")"
 [[ "$checkout_umask" == "0022" || "$checkout_umask" == "022" ]] || fail "updater did not restore the caller's umask before checkout"

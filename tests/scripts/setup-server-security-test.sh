@@ -138,7 +138,7 @@ cp "$repository_root/.env.example" "$fresh_environment/.env.example"
   [[ -z "$(find . -maxdepth 1 -type f -name '.env.*' ! -name '.env.example' -print -quit)" ]] || fail "a temporary secret-bearing environment file remained"
   grep -qx 'APP_ENV=production' .env || fail "production environment override was not applied"
   grep -qx 'APP_URL=https://demo.queuefix.com' .env || fail "demo URL override was not applied"
-  grep -Eq '^DB_PASSWORD=[[:xdigit:]]{32}$' .env || fail "a bounded generated database password was not applied"
+  grep -qx 'DB_PASSWORD=' .env || fail "the managed Docker credential must not be duplicated in .env"
 )
 
 existing_environment="$test_root/existing-environment"
