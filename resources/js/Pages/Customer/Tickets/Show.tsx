@@ -1,7 +1,7 @@
 import { Head, useForm } from '@inertiajs/react';
 import { FormEventHandler } from 'react';
 import CustomerLayout from '@/Layouts/CustomerLayout';
-import { Ticket, Customer, Message } from '@/types';
+import { CustomerTicketDetail, Customer } from '@/types';
 import { Button } from '@/Components/ui/button';
 import { Badge } from '@/Components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
@@ -13,7 +13,7 @@ import { format } from 'date-fns';
 import { Paperclip } from 'lucide-react';
 
 interface CustomerTicketShowProps {
-    ticket: Ticket;
+    ticket: CustomerTicketDetail;
     customer: Customer;
 }
 
@@ -97,11 +97,10 @@ export default function CustomerTicketShow({ ticket, customer }: CustomerTicketS
                         </Card>
                     ) : (
                         visibleMessages.map((message) => {
-                            const isCustomerMessage =
-                                message.sender_type === 'App\\Models\\Customer';
-                            const sender = message.sender as Customer | any;
+                            const isCustomerMessage = message.sender_kind === 'customer';
+                            const sender = message.sender;
                             const senderName = sender?.name || 'Unknown';
-                            const senderAvatar = sender?.avatar;
+                            const senderAvatar = sender?.avatar || undefined;
 
                             return (
                                 <Card key={message.id}>

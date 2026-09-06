@@ -83,6 +83,46 @@ export interface Message {
     attachments?: Attachment[];
 }
 
+export interface CustomerTicketParticipant {
+    name: string;
+    avatar: string | null;
+}
+
+export interface CustomerTicketAttachment {
+    id: string;
+    filename: string;
+    size: number;
+    scan_status: 'pending' | 'clean' | 'rejected';
+    url: string | null;
+}
+
+export interface CustomerTicketMessage {
+    id: string;
+    type: 'reply';
+    sender_kind: 'customer' | 'support';
+    sender: CustomerTicketParticipant | null;
+    body_text?: string;
+    body_html?: string;
+    created_at: string;
+    attachments: CustomerTicketAttachment[];
+}
+
+export interface CustomerTicketSummary {
+    id: string;
+    ticket_number: string;
+    subject: string;
+    status: TicketStatus;
+    last_activity_at: string;
+}
+
+export interface CustomerTicketDetail {
+    id: string;
+    ticket_number: string;
+    subject: string;
+    status: TicketStatus;
+    messages: CustomerTicketMessage[];
+}
+
 export interface Attachment {
     id: string;
     message_id: string;
