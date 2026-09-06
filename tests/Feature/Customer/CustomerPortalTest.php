@@ -3,6 +3,7 @@
 use App\Models\Customer;
 use App\Models\Setting;
 use App\Models\Ticket;
+use App\Services\Auth\MagicLinkService;
 use Illuminate\Support\Facades\URL;
 
 use function Pest\Laravel\actingAs;
@@ -44,11 +45,12 @@ test('customer magic link creates customer if not exists', function () {
 
 test('customer can verify magic link', function () {
     $customer = Customer::factory()->create();
+    $magicLink = app(MagicLinkService::class)->issueCustomer($customer);
 
     $verifyUrl = URL::temporarySignedRoute(
         'customer.auth.verify',
-        now()->addMinutes(30),
-        ['customer' => $customer->id]
+        $magicLink['expires_at'],
+        ['customer' => $customer->id, 'token' => $magicLink['token']]
     );
 
     get($verifyUrl)

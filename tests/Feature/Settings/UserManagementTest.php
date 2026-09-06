@@ -2,6 +2,8 @@
 
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Services\Auth\MagicLinkService;
+use Illuminate\Support\Facades\DB;
 
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\get;
@@ -78,6 +80,20 @@ test('updating user role', function () {
         'id' => $user->id,
         'role' => UserRole::Admin->value,
     ]);
+});
+
+test('deactivating a user revokes their outstanding magic link', function () {
+    actingAs($this->admin);
+
+    $user = User::factory()->create();
+    app(MagicLinkService::class)->issueStaff($user);
+
+    put(route('settings.users.update', $user), [
+        'is_active' => false,
+    ])->assertRedirect();
+
+    expect($user->fresh()->is_active)->toBeFalse()
+        ->and(DB::table('magic_link_tokens')->where('authenticatable_id', $user->id)->exists())->toBeFalse();
 });
 
 test('user email must be unique', function () {

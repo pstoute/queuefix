@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Settings;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Auth\MagicLinkService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -13,6 +14,10 @@ use Inertia\Response;
 
 class UserManagementController extends Controller
 {
+    public function __construct(
+        private MagicLinkService $magicLinks,
+    ) {}
+
     public function index(): Response
     {
         return Inertia::render('Settings/Users/Index', [
@@ -60,6 +65,10 @@ class UserManagementController extends Controller
         }
 
         $user->update($validated);
+
+        if (array_key_exists('is_active', $validated) && ! $validated['is_active']) {
+            $this->magicLinks->revokeStaff($user);
+        }
 
         return back()->with('success', 'User updated.');
     }
