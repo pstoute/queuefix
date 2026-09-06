@@ -6,14 +6,24 @@ use App\Auth\RateLimitedPasswordBroker;
 use App\Mail\MagicLinkMail;
 use App\Models\User;
 use App\Notifications\ResetPassword;
+use App\Services\Auth\MagicLinkService;
+use App\Services\Auth\StaffAuthenticationRevocationService;
+use Illuminate\Auth\Events\PasswordReset as PasswordResetEvent;
+use Illuminate\Auth\Passwords\PasswordBroker;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Notifications\SendQueuedNotifications;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Route;
+use LogicException;
+use Mockery\MockInterface;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -414,4 +424,268 @@ class PasswordResetTest extends TestCase
             return true;
         });
     }
+
+    public function test_password_reset_revokes_only_the_target_authentication_state(): void
+    {
+        $user = User::factory()->create([
+            'password' => Hash::make('old-password'),
+            'remember_token' => 'old-remember-token',
+        ]);
+        $unrelatedUser = User::factory()->create();
+        $originalRememberToken = $user->getRememberToken();
+
+        DB::table('sessions')->insert([
+            $this->sessionRow('target-session-one', $user->id),
+            $this->sessionRow('target-session-two', $user->id),
+            $this->sessionRow('unrelated-session', $unrelatedUser->id),
+            $this->sessionRow('guest-session', null),
+        ]);
+
+        app(MagicLinkService::class)->issueStaff($user);
+        $token = Password::broker()->createToken($user);
+
+        $this->post('/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'replacement-password',
+            'password_confirmation' => 'replacement-password',
+        ])->assertSessionHasNoErrors()->assertRedirect(route('login'));
+
+        $user->refresh();
+
+        $this->assertTrue(Hash::check('replacement-password', $user->password));
+        $this->assertNotSame($originalRememberToken, $user->getRememberToken());
+        $this->assertFalse(DB::table('sessions')->where('user_id', $user->id)->exists());
+        $this->assertTrue(DB::table('sessions')->where('id', 'unrelated-session')->exists());
+        $this->assertTrue(DB::table('sessions')->where('id', 'guest-session')->exists());
+        $this->assertFalse(DB::table('magic_link_tokens')->where('authenticatable_id', $user->id)->exists());
+
+        $this->post('/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'second-password',
+            'password_confirmation' => 'second-password',
+        ])->assertSessionHasErrors('email');
+
+        $this->assertTrue(Hash::check('replacement-password', $user->fresh()->password));
+        $this->assertTrue(DB::table('sessions')->where('id', 'unrelated-session')->exists());
+    }
+
+    public function test_revocation_failure_rolls_back_the_entire_password_reset(): void
+    {
+        Event::fake([PasswordResetEvent::class]);
+
+        $user = User::factory()->create([
+            'password' => Hash::make('old-password'),
+            'remember_token' => 'old-remember-token',
+        ]);
+        $originalPassword = $user->password;
+        $originalRememberToken = $user->getRememberToken();
+        $originalAuthenticationVersion = (int) $user->fresh()->authentication_version;
+
+        DB::table('sessions')->insert($this->sessionRow('target-session', $user->id));
+        app(MagicLinkService::class)->issueStaff($user);
+        $token = Password::broker()->createToken($user);
+
+        $realRevoker = app(StaffAuthenticationRevocationService::class);
+
+        $this->mock(
+            StaffAuthenticationRevocationService::class,
+            fn (MockInterface $mock) => $mock->shouldReceive('revokeAll')
+                ->once()
+                ->andReturnUsing(function (User $revokedUser) use ($realRevoker): never {
+                    $realRevoker->revokeAll($revokedUser);
+
+                    throw new RuntimeException('revocation failed');
+                })
+        );
+
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->post('/reset-password', [
+                'token' => $token,
+                'email' => $user->email,
+                'password' => 'replacement-password',
+                'password_confirmation' => 'replacement-password',
+            ]);
+
+            $this->fail('Expected the revocation failure to abort password recovery.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('revocation failed', $exception->getMessage());
+        }
+
+        $this->withExceptionHandling();
+
+        $user->refresh();
+
+        $this->assertSame($originalPassword, $user->password);
+        $this->assertSame($originalRememberToken, $user->getRememberToken());
+        $this->assertSame($originalAuthenticationVersion, $user->authentication_version);
+        $this->assertTrue(DB::table('sessions')->where('id', 'target-session')->exists());
+        $this->assertTrue(DB::table('magic_link_tokens')->where('authenticatable_id', $user->id)->exists());
+        $this->assertTrue(Password::broker()->tokenExists($user, $token));
+        Event::assertNotDispatched(PasswordResetEvent::class);
+
+        $this->app->forgetInstance(StaffAuthenticationRevocationService::class);
+        Route::getRoutes()->getByName('password.store')?->flushController();
+
+        $this->post('/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'replacement-password',
+            'password_confirmation' => 'replacement-password',
+        ])->assertSessionHasNoErrors()->assertRedirect(route('login'));
+
+        $this->assertTrue(Hash::check('replacement-password', $user->fresh()->password));
+        $this->assertFalse(DB::table('sessions')->where('user_id', $user->id)->exists());
+        $this->assertFalse(DB::table('magic_link_tokens')->where('authenticatable_id', $user->id)->exists());
+        $this->assertFalse(Password::broker()->tokenExists($user, $token));
+        Event::assertDispatchedTimes(PasswordResetEvent::class, 1);
+    }
+
+    public function test_password_login_validated_before_recovery_cannot_persist_a_usable_session(): void
+    {
+        $user = User::factory()->create([
+            'password' => Hash::make('old-password'),
+        ]);
+        $validatedBeforeReset = User::query()->where('email', $user->email)->firstOrFail();
+        $this->assertTrue(Hash::check('old-password', $validatedBeforeReset->password));
+
+        $token = Password::broker()->createToken($user);
+        $this->post('/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'replacement-password',
+            'password_confirmation' => 'replacement-password',
+        ])->assertSessionHasNoErrors();
+
+        Auth::login($validatedBeforeReset);
+        Auth::forgetGuards();
+
+        $this->get(route('agent.dashboard'))
+            ->assertRedirect(route('login'))
+            ->assertSessionHas('error', 'Your session is no longer valid. Please sign in again.');
+
+        $this->assertGuest();
+    }
+
+    public function test_reset_rejects_a_broker_user_on_another_connection_before_mutation(): void
+    {
+        $user = User::factory()->create([
+            'password' => Hash::make('old-password'),
+            'remember_token' => 'old-remember-token',
+        ]);
+        $token = Password::broker()->createToken($user);
+        $storedHash = DB::table('password_reset_tokens')->where('email', $user->email)->value('token');
+
+        config([
+            'database.connections.password-reset-alternate' => [
+                ...config('database.connections.sqlite'),
+                'database' => ':memory:',
+            ],
+        ]);
+
+        $resolvedUser = new AlternateConnectionPasswordResetUser;
+        $resolvedUser->setRawAttributes($user->getAttributes(), true);
+        $resolvedUser->exists = true;
+
+        $broker = \Mockery::mock(PasswordBroker::class);
+        $broker->shouldReceive('getUser')->once()->andReturn($resolvedUser);
+        Password::shouldReceive('broker')->once()->andReturn($broker);
+
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->post('/reset-password', [
+                'token' => $token,
+                'email' => $user->email,
+                'password' => 'replacement-password',
+                'password_confirmation' => 'replacement-password',
+            ]);
+
+            $this->fail('Expected a non-default user connection to abort password recovery.');
+        } catch (LogicException $exception) {
+            $this->assertSame(
+                'Resolved staff accounts must use the default transactional database connection.',
+                $exception->getMessage(),
+            );
+        }
+
+        $this->withExceptionHandling();
+
+        $user->refresh();
+        $this->assertTrue(Hash::check('old-password', $user->password));
+        $this->assertSame('old-remember-token', $user->getRememberToken());
+        $this->assertSame(
+            $storedHash,
+            DB::table('password_reset_tokens')->where('email', $user->email)->value('token'),
+        );
+    }
+
+    public function test_predeployment_staff_session_is_stamped_without_being_revoked(): void
+    {
+        $user = User::factory()->create();
+
+        Auth::login($user);
+        session()->forget(StaffAuthenticationRevocationService::SESSION_VERSION_KEY);
+
+        $this->get(route('agent.dashboard'))->assertOk();
+
+        $this->assertAuthenticatedAs($user);
+        $this->assertSame(
+            0,
+            session()->get(StaffAuthenticationRevocationService::SESSION_VERSION_KEY),
+        );
+    }
+
+    public function test_magic_link_consumed_before_recovery_cannot_persist_a_usable_session(): void
+    {
+        $user = User::factory()->create();
+        $validatedBeforeReset = User::query()->findOrFail($user->id);
+        $magicLink = app(MagicLinkService::class)->issueStaff($validatedBeforeReset);
+
+        $this->assertNotNull($magicLink);
+        $this->assertTrue(app(MagicLinkService::class)->consumeStaff(
+            $validatedBeforeReset,
+            $magicLink['token'],
+        ));
+
+        $token = Password::broker()->createToken($user);
+        $this->post('/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'replacement-password',
+            'password_confirmation' => 'replacement-password',
+        ])->assertSessionHasNoErrors();
+
+        Auth::login($validatedBeforeReset);
+        Auth::forgetGuards();
+
+        $this->get(route('agent.dashboard'))
+            ->assertRedirect(route('login'))
+            ->assertSessionHas('error', 'Your session is no longer valid. Please sign in again.');
+
+        $this->assertGuest();
+    }
+
+    /**
+     * @return array{id: string, user_id: string|null, ip_address: string, user_agent: string, payload: string, last_activity: int}
+     */
+    private function sessionRow(string $id, ?string $userId): array
+    {
+        return [
+            'id' => $id,
+            'user_id' => $userId,
+            'ip_address' => '192.0.2.10',
+            'user_agent' => 'QueueFix test',
+            'payload' => 'serialized-session-payload',
+            'last_activity' => now()->getTimestamp(),
+        ];
+    }
+}
+
+class AlternateConnectionPasswordResetUser extends User
+{
+    protected $connection = 'password-reset-alternate';
 }
