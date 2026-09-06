@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Mail\MagicLinkMail;
 use App\Models\User;
+use App\Services\Auth\MagicLinkService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -15,6 +16,10 @@ use Inertia\Response;
 
 class MagicLinkController extends Controller
 {
+    public function __construct(
+        private MagicLinkService $magicLinks,
+    ) {}
+
     public function showForm(): Response
     {
         return Inertia::render('Auth/MagicLink');
@@ -30,10 +35,16 @@ class MagicLinkController extends Controller
             return back()->with('status', 'If an account exists with that email, a magic link has been sent.');
         }
 
+        $magicLink = $this->magicLinks->issueStaff($user);
+
+        if ($magicLink === null) {
+            return back()->with('status', 'If an account exists with that email, a magic link has been sent.');
+        }
+
         $url = URL::temporarySignedRoute(
             'auth.magic-link.verify',
-            now()->addMinutes(15),
-            ['user' => $user->id]
+            $magicLink['expires_at'],
+            ['user' => $user->id, 'token' => $magicLink['token']]
         );
 
         Mail::to($user->email)->send(new MagicLinkMail($url, $user));
@@ -48,12 +59,14 @@ class MagicLinkController extends Controller
                 ->with('error', 'This magic link has expired or is invalid.');
         }
 
-        if (! $user->is_active) {
+        $token = $request->string('token')->toString();
+
+        if (! $this->magicLinks->consumeStaff($user, $token)) {
             return redirect()->route('login')
-                ->with('error', 'Your account has been deactivated.');
+                ->with('error', 'This magic link has expired or is invalid.');
         }
 
-        Auth::login($user, true);
+        Auth::login($user);
 
         if (! $user->email_verified_at) {
             $user->update(['email_verified_at' => now()]);

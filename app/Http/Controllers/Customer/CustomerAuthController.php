@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Customer;
 use App\Http\Controllers\Controller;
 use App\Mail\CustomerMagicLinkMail;
 use App\Models\Customer;
+use App\Services\Auth\MagicLinkService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -15,6 +16,10 @@ use Inertia\Response;
 
 class CustomerAuthController extends Controller
 {
+    public function __construct(
+        private MagicLinkService $magicLinks,
+    ) {}
+
     public function showLogin(): Response
     {
         return Inertia::render('Customer/Auth/Login');
@@ -29,10 +34,12 @@ class CustomerAuthController extends Controller
             ['name' => explode('@', $request->email)[0]]
         );
 
+        $magicLink = $this->magicLinks->issueCustomer($customer);
+
         $url = URL::temporarySignedRoute(
             'customer.auth.verify',
-            now()->addMinutes(15),
-            ['customer' => $customer->id]
+            $magicLink['expires_at'],
+            ['customer' => $customer->id, 'token' => $magicLink['token']]
         );
 
         Mail::to($customer->email)->send(new CustomerMagicLinkMail($url, $customer));
@@ -47,11 +54,18 @@ class CustomerAuthController extends Controller
                 ->with('error', 'This link has expired or is invalid.');
         }
 
+        $token = $request->string('token')->toString();
+
+        if (! $this->magicLinks->consumeCustomer($customer, $token)) {
+            return redirect()->route('customer.login')
+                ->with('error', 'This link has expired or is invalid.');
+        }
+
         if (! $customer->email_verified_at) {
             $customer->update(['email_verified_at' => now()]);
         }
 
-        Auth::guard('customer')->login($customer, true);
+        Auth::guard('customer')->login($customer);
 
         return redirect()->route('customer.tickets.index');
     }

@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use App\Services\Auth\MagicLinkService;
 use Illuminate\Support\Facades\URL;
 use Laravel\Socialite\Contracts\Provider;
 use Laravel\Socialite\Contracts\User as SocialiteUser;
@@ -140,11 +141,14 @@ test('magic link sending', function () {
 
 test('magic link verification with valid signature', function () {
     $user = User::factory()->create();
+    $magicLink = app(MagicLinkService::class)->issueStaff($user);
+
+    expect($magicLink)->not->toBeNull();
 
     $verifyUrl = URL::temporarySignedRoute(
         'auth.magic-link.verify',
-        now()->addMinutes(30),
-        ['user' => $user->id]
+        $magicLink['expires_at'],
+        ['user' => $user->id, 'token' => $magicLink['token']]
     );
 
     get($verifyUrl)
