@@ -70,6 +70,27 @@ services:
 
 Never publish the database with an unqualified `5432:5432` mapping or a wildcard host address.
 
+## Redis host access
+
+The default Compose configuration does not publish Redis to the host. The app, queue worker, and scheduler continue to reach it through the private Compose network. When upgrading an installation that previously exposed host port 6379, run `docker compose up -d redis app queue scheduler` rather than `docker compose restart`; recreation removes the old published-port configuration.
+
+Run Redis tools through the container when possible:
+
+```bash
+docker compose exec redis redis-cli
+```
+
+If a host-side Redis client is genuinely required for local development, create an untracked `docker-compose.override.yml` that binds Redis only to loopback:
+
+```yaml
+services:
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+```
+
+This local override exposes an unauthenticated service to other processes on the Docker host, and the Compose isolation verifier intentionally rejects it. Remove the override before validating or deploying QueueFix. Never publish Redis with an unqualified `6379:6379` mapping or a wildcard host address.
+
 ## Mailpit host access
 
 Mailpit's development inbox is available only from the Docker host at `http://127.0.0.1:8025`; its SMTP port is private to the Compose network. The app and queue worker honor `MAIL_MAILER` from `.env`, so production installations can disable Mailpit delivery or select another configured mailer. The standard upgrade workflow recreates the affected services; otherwise run `docker compose up -d app queue mailpit` rather than restarting them.

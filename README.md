@@ -42,7 +42,7 @@ docker compose ps
 
 Then open http://localhost:8000. Mailpit's development inbox is available only from the Docker host at http://127.0.0.1:8025.
 
-The one-off setup commands generate the application key, create the database, prompt for a unique administrator credential, and compile the frontend assets. On every startup, Compose safely runs any pending database migrations to completion before the web, queue, and scheduler services start. The background services restart automatically after transient failures and after the queue worker's hourly recycle. The web and Vite ports are bound to the Docker host's loopback interface by default.
+The one-off setup commands generate the application key, create the database, prompt for a unique administrator credential, and compile the frontend assets. On every startup, Compose safely runs any pending database migrations to completion before the web, queue, and scheduler services start. The background services restart automatically after transient failures and after the queue worker's hourly recycle. The web and Vite ports are bound to the Docker host's loopback interface by default; PostgreSQL and Redis remain private to the Compose network.
 
 For a disposable demo instead of a normal installation, set `QUEUEFIX_DEMO_MODE=true` in `.env`, start from an empty database, and replace the administrator bootstrap command above with:
 
