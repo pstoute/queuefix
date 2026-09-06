@@ -4,10 +4,15 @@ namespace App\Providers;
 
 use App\Auth\RateLimitedPasswordBrokerManager;
 use App\Contracts\AttachmentScanner;
+use App\Models\User;
 use App\Services\Attachments\UnavailableAttachmentScanner;
+use App\Services\Auth\StaffAuthenticationRevocationService;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\SessionGuard;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Vite;
@@ -50,6 +55,20 @@ class AppServiceProvider extends ServiceProvider
         Vite::prefetch(concurrency: 3);
 
         Event::listen(SocialiteWasCalled::class, MicrosoftExtendSocialite::class.'@handle');
+        Event::listen(Login::class, function (Login $event): void {
+            if ($event->guard !== 'web' || ! $event->user instanceof User) {
+                return;
+            }
+
+            $guard = Auth::guard($event->guard);
+
+            if ($guard instanceof SessionGuard) {
+                $guard->getSession()->put(
+                    StaffAuthenticationRevocationService::SESSION_VERSION_KEY,
+                    $event->user->authentication_version,
+                );
+            }
+        });
 
         TrustProxies::at(config('trustedproxy.proxies'));
 

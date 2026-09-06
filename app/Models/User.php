@@ -17,6 +17,15 @@ class User extends Authenticatable
     use HasFactory, HasUuids, Notifiable;
 
     /**
+     * Default attributes for newly constructed staff accounts.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'authentication_version' => 0,
+    ];
+
+    /**
      * The attributes that are mass assignable.
      *
      * @var list<string>
@@ -36,6 +45,7 @@ class User extends Authenticatable
      * @var list<string>
      */
     protected $hidden = [
+        'authentication_version',
         'password',
         'remember_token',
     ];
@@ -48,6 +58,7 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
+            'authentication_version' => 'integer',
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
