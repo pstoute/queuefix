@@ -34,6 +34,42 @@ test('mailbox credentials are encrypted at rest and hidden from serialization', 
         ->and($hydratedMailbox->toArray())->not->toHaveKey('credentials');
 });
 
+test('mailbox operational configuration is hidden from implicit serialization', function () {
+    $mailbox = Mailbox::factory()->create([
+        'reply_address_template' => 'reply+implicit-mailbox-{token}@example.test',
+        'incoming_settings' => [
+            'host' => 'internal-imap-implicit.example.test',
+            'nested' => ['private' => 'implicit-incoming-sentinel'],
+        ],
+        'outgoing_settings' => [
+            'host' => 'internal-smtp-implicit.example.test',
+            'nested' => ['private' => 'implicit-outgoing-sentinel'],
+        ],
+        'polling_interval' => 47,
+        'is_active' => false,
+        'last_checked_at' => now(),
+        'imap_poll_cursor' => 424242,
+    ]);
+
+    $serialized = Mailbox::query()->findOrFail($mailbox->id)->toArray();
+
+    expect($serialized)
+        ->not->toHaveKeys([
+            'credentials',
+            'reply_address_template',
+            'incoming_settings',
+            'outgoing_settings',
+            'polling_interval',
+            'is_active',
+            'last_checked_at',
+            'imap_poll_cursor',
+        ])
+        ->and(json_encode($serialized, JSON_THROW_ON_ERROR))
+        ->not->toContain('implicit-incoming-sentinel')
+        ->not->toContain('implicit-outgoing-sentinel')
+        ->not->toContain('reply+implicit-mailbox-');
+});
+
 test('setting a mailbox credential persists it without dropping sibling values', function () {
     $mailbox = Mailbox::factory()->create([
         'credentials' => [
