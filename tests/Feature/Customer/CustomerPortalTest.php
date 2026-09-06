@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MessageType;
+use App\Enums\TicketStatus;
 use App\Enums\UserRole;
 use App\Models\Customer;
 use App\Models\Message;
@@ -8,6 +9,8 @@ use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Services\Auth\MagicLinkService;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 
 use function Pest\Laravel\actingAs;
@@ -242,6 +245,35 @@ test('customer can reply to their ticket', function () {
         'sender_id' => $customer->id,
         'body_text' => 'This is my reply',
     ]);
+});
+
+test('customer cannot reply to a closed ticket through a direct request', function () {
+    Storage::fake('private');
+    config([
+        'attachments.disk' => 'private',
+        'attachments.scanning_required' => false,
+    ]);
+
+    $customer = Customer::factory()->create();
+    $lastActivityAt = now()->subDay()->startOfSecond();
+    $ticket = Ticket::factory()->closed()->create([
+        'customer_id' => $customer->id,
+        'last_activity_at' => $lastActivityAt,
+    ]);
+
+    actingAs($customer, 'customer');
+
+    post(route('customer.tickets.reply', $ticket), [
+        'body' => 'This closed ticket should remain immutable',
+        'attachments' => [UploadedFile::fake()->createWithContent('closed.txt', 'closed attachment')],
+    ])->assertStatus(409);
+
+    expect(Message::query()->where('ticket_id', $ticket->id)->count())->toBe(0)
+        ->and($ticket->fresh()->status)->toBe(TicketStatus::Closed)
+        ->and($ticket->fresh()->last_activity_at->equalTo($lastActivityAt))->toBeTrue()
+        ->and(Storage::disk('private')->allFiles())->toBe([]);
+
+    $this->assertDatabaseCount('attachments', 0);
 });
 
 test('customer cannot reply to other customers ticket', function () {
