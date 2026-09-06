@@ -6,6 +6,7 @@ use App\Enums\AttachmentScanStatus;
 use App\Enums\MessageType;
 use App\Exceptions\AttachmentRejected;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Customer\CustomerTicketData;
 use App\Models\Attachment;
 use App\Models\Customer;
 use App\Models\Message;
@@ -24,6 +25,7 @@ class CustomerTicketController extends Controller
     public function __construct(
         private TicketService $ticketService,
         private AttachmentService $attachmentService,
+        private CustomerTicketData $ticketData,
     ) {}
 
     public function index(Request $request): Response
@@ -31,9 +33,9 @@ class CustomerTicketController extends Controller
         $customer = $this->getCustomer($request);
 
         $tickets = Ticket::where('customer_id', $customer->id)
-            ->with('assignee')
             ->orderBy('last_activity_at', 'desc')
-            ->paginate(15);
+            ->paginate(15)
+            ->through(fn (Ticket $ticket): array => $this->ticketData->summary($ticket));
 
         return Inertia::render('Customer/Tickets/Index', [
             'tickets' => $tickets,
@@ -68,7 +70,7 @@ class CustomerTicketController extends Controller
         });
 
         return Inertia::render('Customer/Tickets/Show', [
-            'ticket' => $ticket,
+            'ticket' => $this->ticketData->detail($ticket),
             'customer' => $customer,
         ]);
     }

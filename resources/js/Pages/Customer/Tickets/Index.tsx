@@ -1,6 +1,6 @@
 import { Head, Link } from '@inertiajs/react';
 import CustomerLayout from '@/Layouts/CustomerLayout';
-import { PaginatedData, Ticket, Customer } from '@/types';
+import { PaginatedData, CustomerTicketSummary, Customer } from '@/types';
 import { Button } from '@/Components/ui/button';
 import { Badge } from '@/Components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
@@ -9,7 +9,7 @@ import { Plus, MessageSquare, Clock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface CustomerTicketsIndexProps {
-    tickets: PaginatedData<Ticket>;
+    tickets: PaginatedData<CustomerTicketSummary>;
     customer: Customer;
 }
 
@@ -115,15 +115,6 @@ export default function CustomerTicketsIndex({ tickets, customer }: CustomerTick
                                                     { addSuffix: true }
                                                 )}
                                             </div>
-                                            {ticket.messages && ticket.messages.length > 0 && (
-                                                <div className="flex items-center gap-2">
-                                                    <MessageSquare className="h-4 w-4" />
-                                                    {ticket.messages.length}{' '}
-                                                    {ticket.messages.length === 1
-                                                        ? 'message'
-                                                        : 'messages'}
-                                                </div>
-                                            )}
                                         </div>
                                     </CardContent>
                                 </Card>
