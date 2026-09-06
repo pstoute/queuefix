@@ -40,6 +40,13 @@ class Mailbox extends Model
      */
     protected $hidden = [
         'credentials',
+        'reply_address_template',
+        'incoming_settings',
+        'outgoing_settings',
+        'polling_interval',
+        'is_active',
+        'last_checked_at',
+        'imap_poll_cursor',
     ];
 
     /**

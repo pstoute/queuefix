@@ -224,6 +224,49 @@ test('viewing a ticket detail', function () {
         );
 });
 
+test('ordinary agents cannot receive administrator mailbox configuration through a ticket', function () {
+    actingAs($this->user);
+
+    get(route('settings.mailboxes.index'))->assertForbidden();
+
+    $mailbox = Mailbox::factory()->create([
+        'reply_address_template' => 'reply+agent-ticket-template-{token}@example.test',
+        'incoming_settings' => [
+            'host' => 'internal-imap-agent-ticket.example.test',
+            'nested' => ['private' => 'incoming-agent-ticket-sentinel'],
+        ],
+        'outgoing_settings' => [
+            'host' => 'internal-smtp-agent-ticket.example.test',
+            'nested' => ['private' => 'outgoing-agent-ticket-sentinel'],
+        ],
+        'polling_interval' => 47,
+        'is_active' => false,
+        'last_checked_at' => now(),
+        'imap_poll_cursor' => 424242,
+    ]);
+    $ticket = Ticket::factory()->create(['mailbox_id' => $mailbox->id]);
+
+    $response = get(route('agent.tickets.show', $ticket))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Agent/Tickets/Show')
+            ->where('ticket.id', $ticket->id)
+            ->where('ticket.mailbox_id', $mailbox->id)
+            ->missing('ticket.mailbox')
+            ->has('ticket.messages', 0)
+            ->has('agents')
+            ->has('statuses')
+            ->has('priorities')
+        );
+
+    expect($response->getContent())
+        ->not->toContain('internal-imap-agent-ticket.example.test')
+        ->not->toContain('incoming-agent-ticket-sentinel')
+        ->not->toContain('internal-smtp-agent-ticket.example.test')
+        ->not->toContain('outgoing-agent-ticket-sentinel')
+        ->not->toContain('reply+agent-ticket-template-');
+});
+
 test('replying to a ticket', function () {
     actingAs($this->user);
 

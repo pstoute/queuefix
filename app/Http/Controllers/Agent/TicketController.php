@@ -94,7 +94,6 @@ class TicketController extends Controller
             'assignee',
             'department',
             'tags',
-            'mailbox',
             'slaTimer.slaPolicy',
             'messages' => function ($q) {
                 $q->with(['sender', 'attachments'])->orderBy('created_at', 'asc');

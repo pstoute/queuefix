@@ -29,6 +29,39 @@ test('admin can view mailboxes', function () {
         );
 });
 
+test('admin mailbox editing retains its explicit operational configuration payload', function () {
+    actingAs($this->admin);
+
+    $mailbox = Mailbox::factory()->create([
+        'reply_address_template' => 'reply+admin-edit-{token}@example.test',
+        'incoming_settings' => [
+            'host' => 'admin-edit-imap.example.test',
+            'port' => 993,
+            'encryption' => 'ssl',
+        ],
+        'outgoing_settings' => [
+            'host' => 'admin-edit-smtp.example.test',
+            'port' => 587,
+            'encryption' => 'tls',
+        ],
+        'polling_interval' => 47,
+        'is_active' => false,
+    ]);
+
+    get(route('settings.mailboxes.edit', $mailbox))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Settings/Mailboxes/Edit')
+            ->where('mailbox.id', $mailbox->id)
+            ->where('mailbox.reply_address_template', 'reply+admin-edit-{token}@example.test')
+            ->where('mailbox.incoming_settings.host', 'admin-edit-imap.example.test')
+            ->where('mailbox.outgoing_settings.host', 'admin-edit-smtp.example.test')
+            ->where('mailbox.polling_interval', 47)
+            ->where('mailbox.is_active', false)
+            ->missing('mailbox.credentials')
+        );
+});
+
 test('creating a mailbox', function () {
     actingAs($this->admin);
 
