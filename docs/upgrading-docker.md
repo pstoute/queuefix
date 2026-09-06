@@ -51,7 +51,11 @@ The supplied Caddy configuration and HTTPS application responses set `Strict-Tra
 
 ## PostgreSQL host access
 
-The default Compose configuration does not publish PostgreSQL to the host. Application services and maintenance commands continue to reach it through the private Compose network. After updating, use `docker compose up -d postgres` rather than `docker compose restart postgres` so Docker recreates the service with the new network configuration.
+The default Compose configuration generates a unique PostgreSQL credential in the private `database_credentials` Docker volume and does not publish PostgreSQL to the host. Application services and maintenance commands read that credential from the volume and continue to reach PostgreSQL through the private Compose network.
+
+The first startup after upgrading from a release that used the former fixed development credential rotates the existing `queuefix` role before migrations or application processes start. The transition preserves the database contents, is safe to rerun, and fails closed when the database accepts neither the managed credential nor the one-time legacy migration credential. Keep the `database_credentials` volume with `postgres_data`; deleting only the credential volume from an upgraded installation makes the retained database inaccessible. Rollbacks to a release that predates managed credentials require an explicit database-credential recovery plan.
+
+After updating, use `docker compose up -d --build` rather than `docker compose restart` so Docker runs credential initialization and transition before recreating every dependent service.
 
 Run PostgreSQL tools through the container when possible:
 
@@ -106,6 +110,8 @@ docker compose exec app composer install --no-interaction --prefer-dist --optimi
 docker compose exec app pnpm install --frozen-lockfile
 docker compose exec app pnpm build
 ```
+
+Releases older than the managed database-credential topology cannot authenticate after the one-time rotation without a deliberate credential recovery. Prefer restoring application code forward; do not restore the former public default.
 
 If the newer release ran migrations, restoring the pre-upgrade PostgreSQL dump may be necessary. Database restores can discard post-upgrade changes, so stop and take a fresh backup first:
 

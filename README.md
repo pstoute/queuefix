@@ -30,8 +30,9 @@ QueueFix does **one thing well: support tickets.** No bloat, no unnecessary feat
 ```bash
 git clone https://github.com/yourusername/queuefix.git
 cd queuefix
-cp .env.example .env
+install -m 0600 .env.example .env
 docker compose build
+docker compose run --rm database-secret
 docker compose run --rm --no-deps app php artisan key:generate
 docker compose run --rm migrate
 docker compose run --rm --no-deps app php artisan queuefix:bootstrap-admin
@@ -42,7 +43,7 @@ docker compose ps
 
 Then open http://localhost:8000. Mailpit's development inbox is available only from the Docker host at http://127.0.0.1:8025.
 
-The one-off setup commands generate the application key, create the database, prompt for a unique administrator credential, and compile the frontend assets. On every startup, Compose safely runs any pending database migrations to completion before the web, queue, and scheduler services start. The background services restart automatically after transient failures and after the queue worker's hourly recycle. The web and Vite ports are bound to the Docker host's loopback interface by default; PostgreSQL and Redis remain private to the Compose network.
+The one-off setup commands generate the private database credential and application key, create the database, prompt for a unique administrator credential, and compile the frontend assets. Compose keeps installation-specific database credentials in a private Docker volume; it never uses the blank `DB_PASSWORD` example value. On every startup, Compose clears stale configuration, verifies or safely migrates the database credential, and only then runs pending migrations or starts the web, queue, and scheduler services. The background services restart automatically after transient failures and after the queue worker's hourly recycle. The web and Vite ports are bound to the Docker host's loopback interface by default; PostgreSQL and Redis remain private to the Compose network.
 
 For a disposable demo instead of a normal installation, set `QUEUEFIX_DEMO_MODE=true` in `.env`, start from an empty database, and replace the administrator bootstrap command above with:
 
@@ -222,6 +223,7 @@ OAuth login is available only to active staff accounts that an administrator has
 | `DB_HOST` | Database host | `127.0.0.1` |
 | `DB_PORT` | Database port (`5432` for PG, `3306` for MySQL) | `5432` |
 | `DB_DATABASE` | Database name | `queuefix` |
+| `DB_PASSWORD` | Password for non-Compose installations; Docker Compose uses its private managed credential volume | empty |
 | `QUEUE_CONNECTION` | Queue driver | `database` |
 | `SESSION_SECURE_COOKIE` | Require HTTPS-only authentication-cookie transport; must be `true` when `APP_URL` uses HTTPS | `false` |
 | `SESSION_HTTP_ONLY` | Prevent JavaScript from reading authentication cookies | `true` |

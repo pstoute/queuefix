@@ -22,6 +22,42 @@ function ipv4CidrContains(string $cidr, string $address): bool
     return ($networkAddress & $mask) === ($candidateAddress & $mask);
 }
 
+/** @param array<string, mixed> $service */
+function hasVolumeMount(array $service, string $target, bool $readOnly): bool
+{
+    foreach ($service['volumes'] ?? [] as $volume) {
+        if (! is_array($volume)) {
+            continue;
+        }
+
+        if (($volume['type'] ?? null) === 'volume'
+            && ($volume['target'] ?? null) === $target
+            && (bool) ($volume['read_only'] ?? false) === $readOnly) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/** @param array<string, mixed> $service */
+function hasBindMount(array $service, string $target, bool $readOnly): bool
+{
+    foreach ($service['volumes'] ?? [] as $volume) {
+        if (! is_array($volume)) {
+            continue;
+        }
+
+        if (($volume['type'] ?? null) === 'bind'
+            && ($volume['target'] ?? null) === $target
+            && (bool) ($volume['read_only'] ?? false) === $readOnly) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 $composeCommand = ['docker', 'compose'];
 $composeEnvFile = getenv('COMPOSE_ENV_FILE');
 
@@ -67,6 +103,9 @@ try {
 $failures = [];
 $services = $compose['services'] ?? [];
 $app = $services['app'] ?? [];
+$applicationCache = $services['application-cache'] ?? [];
+$databaseSecret = $services['database-secret'] ?? [];
+$databaseCredentials = $services['database-credentials'] ?? [];
 $postgres = $services['postgres'] ?? [];
 $redis = $services['redis'] ?? [];
 $mailpit = $services['mailpit'] ?? [];
@@ -76,6 +115,8 @@ $queuefixNetwork = $compose['networks']['queuefix'] ?? [];
 $ipamConfig = $queuefixNetwork['ipam']['config'][0] ?? [];
 $networkSubnet = (string) ($ipamConfig['subnet'] ?? '');
 $networkGateway = (string) ($ipamConfig['gateway'] ?? '');
+$databasePasswordFile = '/run/queuefix-secrets/database-password';
+$databaseSecretDirectory = dirname($databasePasswordFile);
 
 if (! ipv4CidrContains($networkSubnet, $networkGateway)) {
     $failures[] = 'The queuefix network must define a valid IPv4 subnet and gateway on that subnet.';
@@ -137,9 +178,72 @@ foreach (['app', 'migrate', 'queue', 'scheduler'] as $serviceName) {
         $failures[] = "{$serviceName} must connect to PostgreSQL on port 5432.";
     }
 
+    if (array_key_exists('DB_PASSWORD', $environment)) {
+        $failures[] = "{$serviceName} must not receive a database password through its inspectable environment.";
+    }
+
+    if (($environment['DB_PASSWORD_FILE'] ?? null) !== $databasePasswordFile) {
+        $failures[] = "{$serviceName} must read the managed database credential file.";
+    }
+
+    if (! hasVolumeMount($service, $databaseSecretDirectory, true)) {
+        $failures[] = "{$serviceName} must mount the managed database credentials read-only.";
+    }
+
     if (! array_key_exists('queuefix', $networks)) {
         $failures[] = "{$serviceName} must remain attached to the queuefix network.";
     }
+}
+
+if (($postgres['environment']['POSTGRES_PASSWORD_FILE'] ?? null) !== $databasePasswordFile
+    || array_key_exists('POSTGRES_PASSWORD', $postgres['environment'] ?? [])) {
+    $failures[] = 'PostgreSQL must initialize from the managed credential file without an environment password.';
+}
+
+if (! hasVolumeMount($postgres, $databaseSecretDirectory, true)) {
+    $failures[] = 'PostgreSQL must mount the managed database credentials read-only.';
+}
+
+if (($postgres['depends_on']['database-secret']['condition'] ?? null) !== 'service_completed_successfully') {
+    $failures[] = 'PostgreSQL must wait for database credential generation.';
+}
+
+if (($databaseSecret['network_mode'] ?? null) !== 'none') {
+    $failures[] = 'Database credential generation must run without network access.';
+}
+
+if (! hasVolumeMount($databaseSecret, $databaseSecretDirectory, false)) {
+    $failures[] = 'Database credential generation must own the writable credential volume.';
+}
+
+if (($databaseCredentials['environment']['PGHOST'] ?? null) !== 'postgres'
+    || ($databaseCredentials['environment']['PGUSER'] ?? null) !== 'queuefix'
+    || ($databaseCredentials['environment']['PGDATABASE'] ?? null) !== 'queuefix') {
+    $failures[] = 'The database credential transition must target the internal QueueFix PostgreSQL role.';
+}
+
+if (! hasVolumeMount($databaseCredentials, $databaseSecretDirectory, true)) {
+    $failures[] = 'The database credential transition must mount managed credentials read-only.';
+}
+
+if (($databaseCredentials['depends_on']['postgres']['condition'] ?? null) !== 'service_healthy') {
+    $failures[] = 'The database credential transition must wait for PostgreSQL health.';
+}
+
+if (($databaseCredentials['depends_on']['application-cache']['condition'] ?? null) !== 'service_completed_successfully') {
+    $failures[] = 'The database credential transition must wait for stale application configuration to be cleared.';
+}
+
+if (($applicationCache['network_mode'] ?? null) !== 'none') {
+    $failures[] = 'Application configuration cache clearing must run without network access.';
+}
+
+if (! hasBindMount($applicationCache, '/var/www/html/bootstrap/cache', false)) {
+    $failures[] = 'Application configuration cache clearing must receive the writable cache directory.';
+}
+
+if (($services['migrate']['depends_on']['database-credentials']['condition'] ?? null) !== 'service_completed_successfully') {
+    $failures[] = 'Migrations must wait for successful database credential transition.';
 }
 
 if (($redis['ports'] ?? []) !== []) {

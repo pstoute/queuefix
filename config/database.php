@@ -2,6 +2,32 @@
 
 use Illuminate\Support\Str;
 
+$databasePassword = static function (): string {
+    $passwordFile = env('DB_PASSWORD_FILE');
+
+    if (! is_string($passwordFile) || $passwordFile === '') {
+        return (string) env('DB_PASSWORD', '');
+    }
+
+    if (is_link($passwordFile) || ! is_file($passwordFile)) {
+        throw new RuntimeException('DB_PASSWORD_FILE must reference a regular file.');
+    }
+
+    $password = file_get_contents($passwordFile);
+
+    if ($password === false || $password === '' || strlen($password) > 1024) {
+        throw new RuntimeException('DB_PASSWORD_FILE contains an invalid credential.');
+    }
+
+    $password = rtrim($password, "\r\n");
+
+    if ($password === '' || str_contains($password, "\n") || str_contains($password, "\r")) {
+        throw new RuntimeException('DB_PASSWORD_FILE contains an invalid credential.');
+    }
+
+    return $password;
+};
+
 return [
 
     /*
@@ -50,7 +76,7 @@ return [
             'port' => env('DB_PORT', '3306'),
             'database' => env('DB_DATABASE', 'laravel'),
             'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
+            'password' => $databasePassword(),
             'unix_socket' => env('DB_SOCKET', ''),
             'charset' => env('DB_CHARSET', 'utf8mb4'),
             'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
@@ -70,7 +96,7 @@ return [
             'port' => env('DB_PORT', '3306'),
             'database' => env('DB_DATABASE', 'laravel'),
             'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
+            'password' => $databasePassword(),
             'unix_socket' => env('DB_SOCKET', ''),
             'charset' => env('DB_CHARSET', 'utf8mb4'),
             'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
@@ -90,7 +116,7 @@ return [
             'port' => env('DB_PORT', '5432'),
             'database' => env('DB_DATABASE', 'laravel'),
             'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
+            'password' => $databasePassword(),
             'charset' => env('DB_CHARSET', 'utf8'),
             'prefix' => '',
             'prefix_indexes' => true,
@@ -105,7 +131,7 @@ return [
             'port' => env('DB_PORT', '1433'),
             'database' => env('DB_DATABASE', 'laravel'),
             'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
+            'password' => $databasePassword(),
             'charset' => env('DB_CHARSET', 'utf8'),
             'prefix' => '',
             'prefix_indexes' => true,

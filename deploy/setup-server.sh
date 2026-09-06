@@ -81,11 +81,9 @@ configure_demo_environment() (
         chmod 0600 .env
     fi
 
-    local database_password
     local cleanup_command
     local environment_overrides
     local final_environment
-    database_password="$(openssl rand -hex 16)"
     environment_overrides="$(mktemp .env.overrides.XXXXXX)"
     printf -v cleanup_command 'rm -f -- %q' "$environment_overrides"
     trap "$cleanup_command" EXIT
@@ -111,7 +109,7 @@ DB_HOST=postgres
 DB_PORT=5432
 DB_DATABASE=queuefix
 DB_USERNAME=queuefix
-DB_PASSWORD=${database_password}
+DB_PASSWORD=
 
 # Redis
 REDIS_HOST=redis

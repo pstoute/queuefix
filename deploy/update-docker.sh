@@ -219,7 +219,8 @@ docker compose exec -T app composer install --no-interaction --prefer-dist --opt
 docker compose exec -T app pnpm install --frozen-lockfile
 docker compose exec -T app pnpm build
 docker compose exec -T app php artisan migrate --force
-docker compose exec -T app php artisan optimize
+docker compose exec -T app php artisan route:cache
+docker compose exec -T app php artisan view:cache
 
 docker compose exec -T app php artisan up
 trap - EXIT
