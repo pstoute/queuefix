@@ -83,6 +83,13 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('password-reset', fn (Request $request): Limit => Limit::perMinute(20)
             ->by('source:'.$request->ip()));
+
+        RateLimiter::for('profile-update', function (Request $request): array {
+            return [
+                Limit::perMinute(5)->by('account:'.$request->user()->getAuthIdentifier()),
+                Limit::perMinute(30)->by('source:'.$request->ip()),
+            ];
+        });
     }
 
     private function configurePasswordBroker(): void
