@@ -1,23 +1,40 @@
 services:
   application-cache:
-    image: postgres:16-alpine
+    image: busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
     entrypoint: ["/bin/sh", "/usr/local/bin/clear-application-config-cache"]
     network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./docker/clear-application-config-cache.sh:/usr/local/bin/clear-application-config-cache:ro
       - ./bootstrap/cache:/var/www/html/bootstrap/cache
 
   database-secret:
-    image: postgres:16-alpine
+    image: busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
     entrypoint: ["/bin/sh", "/usr/local/bin/initialize-database-secrets"]
     network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./docker/initialize-database-secrets.sh:/usr/local/bin/initialize-database-secrets:ro
       - database_credentials:/run/queuefix-secrets
 
   database-credentials:
-    image: postgres:16-alpine
+    image: postgres:16.15-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     entrypoint: ["/bin/sh", "/usr/local/bin/secure-postgres-credential"]
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       PGCONNECT_TIMEOUT: "5"
       PGHOST: postgres
@@ -100,7 +117,7 @@ services:
 
   # PostgreSQL (default)
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.15-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     environment:
       POSTGRES_DB: queuefix
       POSTGRES_USER: queuefix
@@ -120,7 +137,7 @@ services:
       - queuefix
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
     volumes:
       - redis_data:/data
     healthcheck:
@@ -132,7 +149,7 @@ services:
       - queuefix
 
   mailpit:
-    image: axllent/mailpit
+    image: axllent/mailpit:v1.31.1@sha256:98b916bd3c8d61f7633a52d3ea2f58d00620cb01ca57ab59edde68c347a95365
     ports:
       - "127.0.0.1:8025:8025"
     networks:

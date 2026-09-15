@@ -242,6 +242,9 @@ jobs:
       - name: Verify CI dependencies are immutable
         run: php tests/scripts/ci-dependency-pinning-test.php
 
+      - name: Verify deployment dependencies are immutable
+        run: php tests/scripts/deployment-dependency-pinning-test.php
+
       - name: Verify Docker Compose service isolation
         run: |
           COMPOSE_EXPECTED_MAILER=smtp php scripts/verify-compose-security.php

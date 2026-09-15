@@ -3,6 +3,8 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+busybox_image='busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662'
+postgres_image='postgres:16.15-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685'
 test_suffix="${GITHUB_RUN_ID:-local}-$$"
 test_prefix="queuefix-credential-test-${test_suffix//[^a-zA-Z0-9_.-]/-}"
 network_name="${test_prefix}-network"
@@ -85,13 +87,13 @@ docker run --rm \
     --network none \
     --volume "$repository_root/docker/initialize-database-secrets.sh:/usr/local/bin/initialize-database-secrets:ro" \
     --volume "$credential_volume:/run/queuefix-secrets" \
-    postgres:16-alpine \
+    "$busybox_image" \
     /bin/sh /usr/local/bin/initialize-database-secrets
 
 docker run --rm \
     --network none \
     --volume "$credential_volume:/run/queuefix-secrets:ro" \
-    postgres:16-alpine \
+    "$busybox_image" \
     /bin/sh -ec '
         test "$(stat -c %a /run/queuefix-secrets/database-password)" = 600
         test "$(wc -c < /run/queuefix-secrets/database-password | tr -d " ")" = 64
@@ -102,7 +104,7 @@ docker run --rm \
     --network none \
     --volume "$repository_root/docker/initialize-database-secrets.sh:/usr/local/bin/initialize-database-secrets:ro" \
     --volume "$credential_volume:/run/queuefix-secrets" \
-    postgres:16-alpine \
+    "$busybox_image" \
     /bin/sh -ec '
         previous_password="$(cat /run/queuefix-secrets/database-password)"
         /bin/sh /usr/local/bin/initialize-database-secrets
@@ -116,7 +118,7 @@ docker run --detach \
     --env POSTGRES_USER=queuefix \
     --env POSTGRES_PASSWORD=secret \
     --volume "$legacy_data_volume:/var/lib/postgresql/data" \
-    postgres:16-alpine >/dev/null
+    "$postgres_image" >/dev/null
 
 wait_for_database "$legacy_container" secret legacy
 
@@ -136,7 +138,7 @@ run_transition() {
         --env PGDATABASE=queuefix \
         --volume "$repository_root/docker/secure-postgres-credential.sh:/usr/local/bin/secure-postgres-credential:ro" \
         --volume "$credential_volume:/run/queuefix-secrets:ro" \
-        postgres:16-alpine \
+        "$postgres_image" \
         /bin/sh /usr/local/bin/secure-postgres-credential
 }
 
@@ -148,7 +150,7 @@ docker run --rm \
     --env PGUSER=queuefix \
     --env PGDATABASE=queuefix \
     --volume "$credential_volume:/run/queuefix-secrets:ro" \
-    postgres:16-alpine \
+    "$postgres_image" \
     /bin/sh -ec '
         PGPASSWORD="$(cat /run/queuefix-secrets/database-password)" \
             psql --no-password --tuples-only --no-align \
@@ -170,7 +172,7 @@ docker run --detach \
     --env POSTGRES_USER=queuefix \
     --env POSTGRES_PASSWORD=unexpected-private-password \
     --volume "$unexpected_data_volume:/var/lib/postgresql/data" \
-    postgres:16-alpine >/dev/null
+    "$postgres_image" >/dev/null
 
 wait_for_database "$unexpected_container" unexpected-private-password unexpected-credential
 
@@ -182,7 +184,7 @@ if docker run --rm \
     --env PGDATABASE=queuefix \
     --volume "$repository_root/docker/secure-postgres-credential.sh:/usr/local/bin/secure-postgres-credential:ro" \
     --volume "$credential_volume:/run/queuefix-secrets:ro" \
-    postgres:16-alpine \
+    "$postgres_image" \
     /bin/sh /usr/local/bin/secure-postgres-credential >/dev/null 2>&1; then
     fail 'transition accepted a database with an unknown credential'
 fi
