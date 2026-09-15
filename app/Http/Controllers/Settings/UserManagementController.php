@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Settings;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Services\Auth\MagicLinkService;
+use App\Services\Auth\StaffAccountLifecycleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -15,7 +15,7 @@ use Inertia\Response;
 class UserManagementController extends Controller
 {
     public function __construct(
-        private MagicLinkService $magicLinks,
+        private StaffAccountLifecycleService $staffAccounts,
     ) {}
 
     public function index(): Response
@@ -64,11 +64,12 @@ class UserManagementController extends Controller
             $validated['role'] = UserRole::from($validated['role']);
         }
 
-        $user->update($validated);
-
-        if (array_key_exists('is_active', $validated) && ! $validated['is_active']) {
-            $this->magicLinks->revokeStaff($user);
+        if (array_key_exists('is_active', $validated)) {
+            $validated['is_active'] = $request->boolean('is_active');
         }
+
+        /** @var array{name?: string, role?: UserRole, is_active?: bool} $validated */
+        $this->staffAccounts->update($user, $validated);
 
         return back()->with('success', 'User updated.');
     }

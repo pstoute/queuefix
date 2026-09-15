@@ -4,6 +4,7 @@ namespace App\Services\Auth;
 
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use LogicException;
 
 class StaffAuthenticationRevocationService
@@ -34,6 +35,10 @@ class StaffAuthenticationRevocationService
         $this->ensureSharedConnection($userConnection, $defaultConnection, 'magic link');
         $this->ensureSharedConnection($userConnection, $sessionConnection, 'session');
         $this->ensureSharedConnection($userConnection, $passwordResetConnection, 'password reset');
+
+        $user->forceFill([
+            'remember_token' => Str::random(60),
+        ])->save();
 
         $user->increment('authentication_version');
 

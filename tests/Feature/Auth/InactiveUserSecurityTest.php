@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\User;
+use App\Services\Auth\StaffAccountLifecycleService;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 use function Pest\Laravel\actingAs;
@@ -74,6 +76,73 @@ test('deactivating a remembered user revokes remembered access', function () {
 
     $this->assertGuest();
     expect($user->fresh()->getRememberToken())->not->toBe($rememberToken);
+});
+
+test('a dormant database session cannot revive after deactivation and reactivation', function () {
+    config(['session.driver' => 'database']);
+    app('session')->forgetDrivers();
+    app()->forgetInstance('session.store');
+    Auth::forgetGuards();
+
+    $user = User::factory()->create([
+        'email' => 'dormant-session@example.com',
+        'password' => bcrypt('password'),
+    ]);
+    $sessionCookieName = (string) config('session.cookie');
+    $loginResponse = post(route('login'), [
+        'email' => $user->email,
+        'password' => 'password',
+    ])->assertRedirect(route('agent.dashboard'));
+    $capturedSession = $loginResponse->getCookie($sessionCookieName)?->getValue();
+
+    expect($capturedSession)->not->toBeNull()
+        ->and(DB::table('sessions')->where('id', $capturedSession)->exists())->toBeTrue();
+
+    app(StaffAccountLifecycleService::class)->update($user, ['is_active' => false]);
+    app(StaffAccountLifecycleService::class)->update($user->fresh(), ['is_active' => true]);
+
+    expect(DB::table('sessions')->where('id', $capturedSession)->exists())->toBeFalse();
+
+    app('session')->forgetDrivers();
+    app()->forgetInstance('session.store');
+    Auth::forgetGuards();
+    $this->withCookie($sessionCookieName, $capturedSession);
+
+    get(route('agent.dashboard'))->assertRedirect(route('login'));
+
+    $this->assertGuest();
+});
+
+test('a dormant remember cookie cannot revive after deactivation and reactivation', function () {
+    $user = User::factory()->create([
+        'email' => 'dormant-recaller@example.com',
+        'password' => bcrypt('password'),
+    ]);
+    $loginResponse = post(route('login'), [
+        'email' => $user->email,
+        'password' => 'password',
+        'remember' => true,
+    ])->assertRedirect(route('agent.dashboard'));
+    $recallerName = Auth::guard('web')->getRecallerName();
+    $capturedRecaller = $loginResponse->getCookie($recallerName)?->getValue();
+    $originalRememberToken = $user->fresh()->getRememberToken();
+
+    expect($capturedRecaller)->not->toBeNull();
+
+    app(StaffAccountLifecycleService::class)->update($user, ['is_active' => false]);
+    app(StaffAccountLifecycleService::class)->update($user->fresh(), ['is_active' => true]);
+
+    expect($user->fresh()->getRememberToken())->not->toBe($originalRememberToken);
+
+    session()->forget(Auth::guard('web')->getName());
+    app('session')->forgetDrivers();
+    app()->forgetInstance('session.store');
+    Auth::forgetGuards();
+    $this->withCookie($recallerName, $capturedRecaller);
+
+    get(route('agent.dashboard'))->assertRedirect(route('login'));
+
+    $this->assertGuest();
 });
 
 test('deactivating an existing session blocks profile mutations', function () {

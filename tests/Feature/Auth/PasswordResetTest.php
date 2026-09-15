@@ -7,6 +7,7 @@ use App\Mail\MagicLinkMail;
 use App\Models\User;
 use App\Notifications\ResetPassword;
 use App\Services\Auth\MagicLinkService;
+use App\Services\Auth\StaffAccountLifecycleService;
 use App\Services\Auth\StaffAuthenticationRevocationService;
 use Illuminate\Auth\Events\PasswordReset as PasswordResetEvent;
 use Illuminate\Auth\Passwords\PasswordBroker;
@@ -78,7 +79,7 @@ class PasswordResetTest extends TestCase
         Notification::assertSentTo($user, ResetPassword::class);
     }
 
-    public function test_inactive_accounts_keep_the_generic_response_and_current_delivery_policy(): void
+    public function test_inactive_accounts_keep_the_generic_response_without_receiving_a_reset_token(): void
     {
         Notification::fake();
 
@@ -92,7 +93,72 @@ class PasswordResetTest extends TestCase
             ->assertSessionHas('status', self::RESPONSE_MESSAGE)
             ->assertSessionHasNoErrors();
 
-        Notification::assertSentTo($user, ResetPassword::class);
+        Notification::assertNothingSent();
+        $this->assertDatabaseMissing('password_reset_tokens', [
+            'email' => $user->email,
+        ]);
+    }
+
+    public function test_inactive_accounts_cannot_consume_a_reset_token_or_save_it_for_reactivation(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'inactive-reset@example.com',
+            'password' => Hash::make('original-password'),
+            'remember_token' => 'original-remember-token',
+            'is_active' => false,
+        ]);
+        $originalPassword = $user->password;
+        $originalVersion = $user->authentication_version;
+        $token = Password::broker()->createToken($user);
+
+        $this->post('/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'attacker-password',
+            'password_confirmation' => 'attacker-password',
+        ])->assertSessionHasErrors('email');
+
+        $user->refresh();
+
+        $this->assertSame($originalPassword, $user->password);
+        $this->assertSame('original-remember-token', $user->getRememberToken());
+        $this->assertSame($originalVersion, $user->authentication_version);
+        $this->assertFalse(Password::broker()->tokenExists($user, $token));
+
+        $user->update(['is_active' => true]);
+
+        $this->post('/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'attacker-password',
+            'password_confirmation' => 'attacker-password',
+        ])->assertSessionHasErrors('email');
+
+        $this->assertSame($originalPassword, $user->fresh()->password);
+    }
+
+    public function test_pre_deactivation_reset_token_cannot_be_used_after_reactivation(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'reactivated-reset@example.com',
+            'password' => Hash::make('original-password'),
+        ]);
+        $originalPassword = $user->password;
+        $token = Password::broker()->createToken($user);
+
+        app(StaffAccountLifecycleService::class)
+            ->update($user, ['is_active' => false]);
+        app(StaffAccountLifecycleService::class)
+            ->update($user->fresh(), ['is_active' => true]);
+
+        $this->post('/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'attacker-password',
+            'password_confirmation' => 'attacker-password',
+        ])->assertSessionHasErrors('email');
+
+        $this->assertSame($originalPassword, $user->fresh()->password);
     }
 
     public function test_broker_throttling_does_not_reveal_account_existence(): void

@@ -2,15 +2,17 @@
 
 namespace App\Auth;
 
+use App\Models\User;
 use Closure;
 use Illuminate\Auth\Events\PasswordResetLinkSent;
 use Illuminate\Auth\Passwords\PasswordBroker;
 use Illuminate\Auth\Passwords\TokenRepositoryInterface;
 use Illuminate\Cache\RateLimiter;
-use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\UserProvider;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Timebox;
+use LogicException;
 use UnexpectedValueException;
 
 class RateLimitedPasswordBroker extends PasswordBroker
@@ -44,31 +46,54 @@ class RateLimitedPasswordBroker extends PasswordBroker
                 return static::INVALID_USER;
             }
 
-            if ($this->tokens->recentlyCreatedToken($user)) {
-                return static::RESET_THROTTLED;
+            if (! $user instanceof User) {
+                throw new UnexpectedValueException('Password-reset users must be QueueFix staff accounts.');
             }
 
-            if (! $user instanceof Authenticatable) {
-                throw new UnexpectedValueException('Password-reset users must implement the authenticatable contract.');
+            $defaultConnection = (string) config('database.default');
+            $userConnection = $user->getConnectionName() ?? $defaultConnection;
+
+            if ($userConnection !== $defaultConnection) {
+                throw new LogicException(
+                    'Staff password-reset issuance must use the default transactional database connection.'
+                );
             }
 
-            if ($this->rateLimiter->hit(
-                'password-reset:recipient:'.hash('sha256', get_class($user).':'.$user->getAuthIdentifier()),
-                self::RECIPIENT_DECAY_SECONDS,
-            ) > self::RECIPIENT_MAX_ATTEMPTS) {
-                return static::RESET_THROTTLED;
-            }
+            return DB::transaction(function () use ($user, $callback): string {
+                $lockedUser = $user->newQuery()->lockForUpdate()->find($user->getKey());
 
-            $token = $this->tokens->create($user);
+                if (! $lockedUser instanceof User) {
+                    return static::INVALID_USER;
+                }
 
-            if ($callback !== null) {
-                return $callback($user, $token) ?? static::RESET_LINK_SENT;
-            }
+                if (! $lockedUser->is_active) {
+                    $this->tokens->delete($lockedUser);
 
-            $user->sendPasswordResetNotification($token);
-            $this->events?->dispatch(new PasswordResetLinkSent($user));
+                    return static::INVALID_USER;
+                }
 
-            return static::RESET_LINK_SENT;
+                if ($this->tokens->recentlyCreatedToken($lockedUser)) {
+                    return static::RESET_THROTTLED;
+                }
+
+                if ($this->rateLimiter->hit(
+                    'password-reset:recipient:'.hash('sha256', get_class($lockedUser).':'.$lockedUser->getAuthIdentifier()),
+                    self::RECIPIENT_DECAY_SECONDS,
+                ) > self::RECIPIENT_MAX_ATTEMPTS) {
+                    return static::RESET_THROTTLED;
+                }
+
+                $token = $this->tokens->create($lockedUser);
+
+                if ($callback !== null) {
+                    return $callback($lockedUser, $token) ?? static::RESET_LINK_SENT;
+                }
+
+                $lockedUser->sendPasswordResetNotification($token);
+                $this->events?->dispatch(new PasswordResetLinkSent($lockedUser));
+
+                return static::RESET_LINK_SENT;
+            });
         }, $this->timeboxDuration);
     }
 }
