@@ -219,6 +219,7 @@ OAuth login is available only to active staff accounts that an administrator has
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `APP_URL` | Canonical public QueueFix origin; requests for any other host are rejected and all absolute links use this HTTP(S) URL | `http://localhost:8000` |
 | `DB_CONNECTION` | Database driver (`pgsql` or `mysql`) | `pgsql` |
 | `DB_HOST` | Database host | `127.0.0.1` |
 | `DB_PORT` | Database port (`5432` for PG, `3306` for MySQL) | `5432` |

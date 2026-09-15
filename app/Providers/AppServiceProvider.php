@@ -7,6 +7,7 @@ use App\Contracts\AttachmentScanner;
 use App\Models\User;
 use App\Services\Attachments\UnavailableAttachmentScanner;
 use App\Services\Auth\StaffAuthenticationRevocationService;
+use App\Support\CanonicalUrlConfiguration;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\SessionGuard;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -15,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -37,6 +39,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->configureCanonicalUrl();
         $this->configurePasswordBroker();
         $this->configureSessionCookieSecurity();
 
@@ -98,6 +101,14 @@ class AppServiceProvider extends ServiceProvider
         $this->app->make('auth.password');
         $this->app->singleton('auth.password', fn ($app) => new RateLimitedPasswordBrokerManager($app));
         $this->app->bind('auth.password.broker', fn ($app) => $app->make('auth.password')->broker());
+    }
+
+    private function configureCanonicalUrl(): void
+    {
+        $canonicalUrl = CanonicalUrlConfiguration::from(config('app.url'));
+
+        URL::useOrigin($canonicalUrl->root);
+        URL::forceScheme($canonicalUrl->scheme);
     }
 
     private function configureSessionCookieSecurity(): void

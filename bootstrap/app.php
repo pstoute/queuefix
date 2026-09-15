@@ -12,6 +12,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->append(\App\Http\Middleware\EnforceCanonicalHost::class);
+
         $middleware->web(append: [
             \App\Http\Middleware\AddStrictTransportSecurity::class,
             \App\Http\Middleware\AddContentSecurityPolicy::class,
