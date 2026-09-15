@@ -4,12 +4,14 @@ namespace App\Console\Commands;
 
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Services\Auth\StaffAuthenticationRevocationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
+use LogicException;
 
 class BootstrapAdminCommand extends Command
 {
@@ -19,7 +21,7 @@ class BootstrapAdminCommand extends Command
 
     protected $description = 'Create the first QueueFix administrator';
 
-    public function handle(): int
+    public function handle(StaffAuthenticationRevocationService $authenticationRevoker): int
     {
         if (config('demo.enabled')) {
             $this->error('Administrator bootstrap is disabled in demo mode.');
@@ -76,7 +78,7 @@ class BootstrapAdminCommand extends Command
 
         $validated = $validator->validated();
 
-        DB::transaction(function () use ($legacyAdmin, $validated): void {
+        DB::transaction(function () use ($authenticationRevoker, $legacyAdmin, $validated): void {
             $attributes = [
                 'name' => $validated['name'],
                 'email' => $validated['email'],
@@ -88,8 +90,16 @@ class BootstrapAdminCommand extends Command
             ];
 
             if ($legacyAdmin) {
-                $legacyAdmin->forceFill($attributes)->save();
-                DB::table('sessions')->where('user_id', $legacyAdmin->getAuthIdentifier())->delete();
+                $lockedLegacyAdmin = User::query()
+                    ->lockForUpdate()
+                    ->find($legacyAdmin->getKey());
+
+                if (! $lockedLegacyAdmin instanceof User) {
+                    throw new LogicException('The legacy administrator no longer exists.');
+                }
+
+                $authenticationRevoker->revokeAll($lockedLegacyAdmin);
+                $lockedLegacyAdmin->forceFill($attributes)->save();
 
                 return;
             }

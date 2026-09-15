@@ -2,8 +2,10 @@
 
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Services\Auth\MagicLinkService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password;
 
 test('the bootstrap command creates one unique administrator', function () {
     $this->artisan('queuefix:bootstrap-admin', [
@@ -82,6 +84,8 @@ test('the bootstrap command rotates the legacy administrator without changing it
         'payload' => 'test',
         'last_activity' => now()->timestamp,
     ]);
+    app(MagicLinkService::class)->issueStaff($legacyAdmin);
+    $resetToken = Password::broker()->createToken($legacyAdmin);
 
     $this->artisan('queuefix:bootstrap-admin', [
         '--name' => 'QueueFix Owner',
@@ -98,7 +102,11 @@ test('the bootstrap command rotates the legacy administrator without changing it
         ->and($rotatedAdmin->id)->toBe($legacyAdmin->id)
         ->and($rotatedAdmin->email)->toBe('owner@example.com')
         ->and($rotatedAdmin->remember_token)->toBeNull()
+        ->and($rotatedAdmin->authentication_version)->toBe(1)
         ->and(Hash::check('password', $rotatedAdmin->password))->toBeFalse()
         ->and(Hash::check('QueueFix-Rotated-2026!', $rotatedAdmin->password))->toBeTrue()
-        ->and(DB::table('sessions')->where('user_id', $legacyAdmin->id)->exists())->toBeFalse();
+        ->and(DB::table('sessions')->where('user_id', $legacyAdmin->id)->exists())->toBeFalse()
+        ->and(DB::table('magic_link_tokens')->where('authenticatable_id', $legacyAdmin->id)->exists())->toBeFalse()
+        ->and(DB::table('password_reset_tokens')->where('email', 'admin@example.com')->exists())->toBeFalse()
+        ->and(Password::broker()->tokenExists($rotatedAdmin, $resetToken))->toBeFalse();
 });

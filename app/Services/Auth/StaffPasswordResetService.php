@@ -64,11 +64,24 @@ class StaffPasswordResetService
             }
 
             $tokenTable = (string) $brokerConfig['table'];
-            $email = $user->getEmailForPasswordReset();
+            $lockedUser = $user->newQuery()->lockForUpdate()->find($user->getKey());
+
+            if (! $lockedUser instanceof User) {
+                return ['status' => Password::INVALID_USER, 'user' => null];
+            }
+
+            $email = $lockedUser->getEmailForPasswordReset();
+
+            if (! $lockedUser->is_active) {
+                DB::table($tokenTable)->where('email', $email)->delete();
+
+                return ['status' => Password::INVALID_USER, 'user' => null];
+            }
+
             $storedHash = DB::table($tokenTable)->where('email', $email)->value('token');
 
             if (! is_string($storedHash)
-                || ! $broker->tokenExists($user, $credentials['token'])
+                || ! $broker->tokenExists($lockedUser, $credentials['token'])
                 || DB::table($tokenTable)
                     ->where('email', $email)
                     ->where('token', $storedHash)
@@ -76,14 +89,14 @@ class StaffPasswordResetService
                 return ['status' => Password::INVALID_TOKEN, 'user' => null];
             }
 
-            $user->forceFill([
+            $lockedUser->forceFill([
                 'password' => Hash::make($credentials['password']),
                 'remember_token' => Str::random(60),
             ])->save();
 
-            $this->authenticationRevoker->revokeAll($user);
+            $this->authenticationRevoker->revokeAll($lockedUser);
 
-            return ['status' => Password::PASSWORD_RESET, 'user' => $user];
+            return ['status' => Password::PASSWORD_RESET, 'user' => $lockedUser];
         });
     }
 }
