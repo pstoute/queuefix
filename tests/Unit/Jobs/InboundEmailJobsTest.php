@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\AttachmentScanStatus;
+use App\Exceptions\InboundEmailRejected;
 use App\Jobs\FetchEmailsJob;
 use App\Jobs\ProcessInboundEmailJob;
 use App\Jobs\SendEmailReplyJob;
@@ -538,6 +539,40 @@ test('provider attachment rejection is committed and acknowledged without poison
         ->and($attachment->scan_status)->toBe(AttachmentScanStatus::Rejected)
         ->and($attachment->path)->toBeNull()
         ->and($attachment->getRawOriginal('rejection_reason'))->toBe('file_too_large');
+});
+
+test('an oversized provider message is committed and acknowledged without poison retries', function () {
+    $mailbox = Mailbox::factory()->create();
+    $providerReference = [
+        'provider_message_id' => 'imap:INBOX:123:456',
+        'provider_remote_id' => '456',
+        'uid_validity' => 123,
+    ];
+    $claimService = app(InboundEmailClaimService::class);
+    $claimToken = (string) Str::uuid();
+    expect($claimService->acquire($mailbox->id, $providerReference['provider_message_id'], $claimToken))->toBeTrue();
+    $connector = Mockery::mock(InboundEmailConnector::class);
+    $connector->shouldReceive('connect')->twice()->andReturnTrue();
+    $connector->shouldReceive('fetchEmail')->once()->with($providerReference)
+        ->andThrow(new InboundEmailRejected('message_too_large'));
+    $connector->shouldReceive('acknowledge')->twice()->with($providerReference)->andReturnTrue();
+    $connectorFactory = Mockery::mock(MailboxConnectorFactory::class);
+    $connectorFactory->shouldReceive('make')->twice()->andReturn($connector);
+
+    (new ProcessInboundEmailJob($providerReference, $mailbox->id, $claimToken))
+        ->handle(app(EmailProcessorService::class), $connectorFactory, null, $claimService);
+    (new ProcessInboundEmailJob($providerReference, $mailbox->id))
+        ->handle(app(EmailProcessorService::class), $connectorFactory);
+
+    $receipt = InboundEmailReceipt::query()->sole();
+    expect($receipt->ticket_id)->toBeNull()
+        ->and($receipt->disposition)->toBe('rejected')
+        ->and($receipt->rejection_reason)->toBe('message_too_large')
+        ->and(InboundEmailClaim::query()->count())->toBe(0)
+        ->and(Ticket::query()->count())->toBe(0)
+        ->and(Message::query()->count())->toBe(0)
+        ->and(Attachment::query()->count())->toBe(0)
+        ->and(InboundEmailReceipt::query()->count())->toBe(1);
 });
 
 test('a safely omitted provider body is committed and acknowledged once', function () {

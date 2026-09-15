@@ -16,10 +16,39 @@ namespace Tests\Support {
 
         public static string $overviewSequence = '';
 
+        public static string $hydrationOverviewSequence = '';
+
+        public static int $hydrationOverviewFlags = 0;
+
+        public static int $hydrationOverviewCalls = 0;
+
+        /** @var array<string, list<int>|false> */
+        public static array $searchResultsByCriteria = [];
+
+        /** @var list<string> */
+        public static array $searchCriteria = [];
+
+        /** @var list<int> */
+        public static array $searchFlags = [];
+
+        public static int $searchCalls = 0;
+
         public static int $messageCount = 1;
 
         /** @var list<object>|false */
         public static array|false $overviewRows = [];
+
+        /** @var list<object>|false */
+        public static array|false $hydrationOverviewRows = [];
+
+        public static int $headerInfoCalls = 0;
+
+        public static int $structureCalls = 0;
+
+        /** @var list<int> */
+        public static array $structureFlags = [];
+
+        public static int $fetchHeaderCalls = 0;
 
         public static int $seenWrites = 0;
 
@@ -38,8 +67,31 @@ namespace Tests\Support {
             self::$bodyBySection = [];
             self::$structure = null;
             self::$overviewSequence = '';
+            self::$hydrationOverviewSequence = '';
+            self::$hydrationOverviewFlags = 0;
+            self::$hydrationOverviewCalls = 0;
+            self::$searchResultsByCriteria = [];
+            self::$searchCriteria = [];
+            self::$searchFlags = [];
+            self::$searchCalls = 0;
             self::$messageCount = 1;
             self::$overviewRows = [(object) ['msgno' => 1, 'uid' => 456, 'seen' => 0]];
+            self::$hydrationOverviewRows = [(object) [
+                'msgno' => 1,
+                'uid' => 456,
+                'size' => 1024,
+                'from' => 'Customer <customer@example.com>',
+                'to' => 'Support <support@example.com>',
+                'subject' => 'Unread message',
+                'message_id' => '<imap-provider-test@example.com>',
+                'in_reply_to' => '<parent@example.com>',
+                'references' => '<root@example.com> <parent@example.com>',
+                'date' => 'Sat, 05 Sep 2026 12:00:00 +0000',
+            ]];
+            self::$headerInfoCalls = 0;
+            self::$structureCalls = 0;
+            self::$structureFlags = [];
+            self::$fetchHeaderCalls = 0;
             self::$seenWrites = 0;
             self::$seenFlags = 0;
             self::$seenSequence = '';
@@ -60,9 +112,31 @@ namespace App\Services\Email {
     /** @return list<object>|false */
     function imap_fetch_overview(mixed $connection, string $sequence, int $flags = 0): array|false
     {
+        if (($flags & FT_UID) === FT_UID) {
+            ImapFunctionState::$hydrationOverviewCalls++;
+            ImapFunctionState::$hydrationOverviewSequence = $sequence;
+            ImapFunctionState::$hydrationOverviewFlags = $flags;
+
+            return ImapFunctionState::$hydrationOverviewRows;
+        }
+
         ImapFunctionState::$overviewSequence = $sequence;
 
         return ImapFunctionState::$overviewRows;
+    }
+
+    /** @return list<int>|false */
+    function imap_search(mixed $connection, string $criteria, int $flags = 0): array|false
+    {
+        ImapFunctionState::$searchCalls++;
+        ImapFunctionState::$searchCriteria[] = $criteria;
+        ImapFunctionState::$searchFlags[] = $flags;
+
+        if (array_key_exists($criteria, ImapFunctionState::$searchResultsByCriteria)) {
+            return ImapFunctionState::$searchResultsByCriteria[$criteria];
+        }
+
+        return str_contains($criteria, ' NOT LARGER ') ? [456] : false;
     }
 
     function imap_uid(mixed $connection, int $emailNumber): int
@@ -77,6 +151,8 @@ namespace App\Services\Email {
 
     function imap_headerinfo(mixed $connection, int $emailNumber): object
     {
+        ImapFunctionState::$headerInfoCalls++;
+
         return (object) [
             'from' => [(object) ['mailbox' => 'customer', 'host' => 'example.com', 'personal' => 'Customer']],
             'to' => [(object) ['mailbox' => 'support', 'host' => 'example.com']],
@@ -85,8 +161,11 @@ namespace App\Services\Email {
         ];
     }
 
-    function imap_fetchstructure(mixed $connection, int $emailNumber): object
+    function imap_fetchstructure(mixed $connection, int $emailNumber, int $flags = 0): object
     {
+        ImapFunctionState::$structureCalls++;
+        ImapFunctionState::$structureFlags[] = $flags;
+
         if (ImapFunctionState::$structure !== null) {
             return ImapFunctionState::$structure;
         }
@@ -131,7 +210,15 @@ namespace App\Services\Email {
 
     function imap_fetchheader(mixed $connection, int $emailNumber): string
     {
+        ImapFunctionState::$fetchHeaderCalls++;
+
         return "Message-ID: <imap-provider-test@example.com>\r\n";
+    }
+
+    /** @return list<object>|false */
+    function imap_rfc822_parse_adrlist(string $address, string $defaultHostname): array|false
+    {
+        return \imap_rfc822_parse_adrlist($address, $defaultHostname);
     }
 
     function imap_utf8(string $value): string
@@ -155,6 +242,7 @@ namespace App\Services\Email {
 }
 
 namespace {
+    use App\Exceptions\InboundEmailRejected;
     use App\Models\Mailbox;
     use App\Services\Email\ImapConnector;
     use Tests\Support\ImapFunctionState;
@@ -164,14 +252,23 @@ namespace {
             define('FT_PEEK', 2);
         }
 
+        if (! defined('FT_UID')) {
+            define('FT_UID', 1);
+        }
+
         if (! defined('ST_UID')) {
             define('ST_UID', 1);
+        }
+
+        if (! defined('SE_UID')) {
+            define('SE_UID', 1);
         }
 
         ImapFunctionState::reset();
     });
 
     test('fetching IMAP bodies preserves Unseen until explicit UID acknowledgement', function () {
+        config(['attachments.max_provider_message_bytes' => 1024]);
         $mailbox = Mailbox::factory()->create();
         $connector = new ImapConnector;
         $reflection = new ReflectionClass($connector);
@@ -193,8 +290,21 @@ namespace {
             ->and($messages)->toHaveCount(1)
             ->and($messages[0]['provider_message_id'])->toBe('imap:INBOX:123:456')
             ->and($messages[0]['provider_remote_id'])->toBe('456')
+            ->and($messages[0]['message_id'])->toBe('<imap-provider-test@example.com>')
+            ->and($messages[0]['in_reply_to'])->toBe('<parent@example.com>')
+            ->and($messages[0]['references'])->toBe('<root@example.com> <parent@example.com>')
             ->and(ImapFunctionState::$overviewSequence)->toBe('1:1')
-            ->and(ImapFunctionState::$fetchBodyFlags)->toBe([FT_PEEK, FT_PEEK])
+            ->and(ImapFunctionState::$searchCriteria)->toBe([
+                'UID 456 LARGER 1024',
+                'UID 456 NOT LARGER 1024',
+            ])
+            ->and(ImapFunctionState::$searchFlags)->toBe([SE_UID, SE_UID])
+            ->and(ImapFunctionState::$hydrationOverviewSequence)->toBe('456')
+            ->and(ImapFunctionState::$hydrationOverviewFlags)->toBe(FT_UID)
+            ->and(ImapFunctionState::$headerInfoCalls)->toBe(0)
+            ->and(ImapFunctionState::$fetchHeaderCalls)->toBe(0)
+            ->and(ImapFunctionState::$structureFlags)->toBe([FT_UID])
+            ->and(ImapFunctionState::$fetchBodyFlags)->toBe([FT_PEEK | FT_UID, FT_PEEK | FT_UID])
             ->and(ImapFunctionState::$seenWrites)->toBe(0);
 
         $uidValidity = $reflection->getProperty('uidValidity');
@@ -262,6 +372,121 @@ namespace {
             ->and($references[1]['provider_remote_id'])->toBe('459');
     });
 
+    test('IMAP rejects an oversized message before hydrating any envelope, structure, or body', function () {
+        config(['attachments.max_provider_message_bytes' => 1024]);
+        ImapFunctionState::$searchResultsByCriteria['UID 456 LARGER 1024'] = [456];
+        $connector = imapConnectorForTest();
+        $reference = [
+            'provider_message_id' => 'imap:INBOX:123:456',
+            'provider_remote_id' => '456',
+            'uid_validity' => 123,
+        ];
+
+        expect(fn () => $connector->fetchEmail($reference))
+            ->toThrow(InboundEmailRejected::class)
+            ->and(ImapFunctionState::$searchCriteria)->toBe(['UID 456 LARGER 1024'])
+            ->and(ImapFunctionState::$searchFlags)->toBe([SE_UID])
+            ->and(ImapFunctionState::$hydrationOverviewCalls)->toBe(0)
+            ->and(ImapFunctionState::$headerInfoCalls)->toBe(0)
+            ->and(ImapFunctionState::$structureCalls)->toBe(0)
+            ->and(ImapFunctionState::$fetchHeaderCalls)->toBe(0)
+            ->and(ImapFunctionState::$fetchBodySections)->toBe([]);
+    });
+
+    test('IMAP admits a message exactly at the provider hydration limit', function () {
+        config(['attachments.max_provider_message_bytes' => 1024]);
+        $message = imapConnectorForTest()->fetchEmail([
+            'provider_message_id' => 'imap:INBOX:123:456',
+            'provider_remote_id' => '456',
+            'uid_validity' => 123,
+        ]);
+
+        expect($message['body_text'])->toBe('Message body')
+            ->and($message['attachments'])->toHaveCount(1)
+            ->and(ImapFunctionState::$searchCriteria)->toBe([
+                'UID 456 LARGER 1024',
+                'UID 456 NOT LARGER 1024',
+            ])
+            ->and(ImapFunctionState::$structureCalls)->toBe(1)
+            ->and(ImapFunctionState::$fetchBodySections)->toBe(['2', '1']);
+    });
+
+    test('IMAP rejects contradictory oversized overview metadata as defense in depth', function () {
+        config(['attachments.max_provider_message_bytes' => 1024]);
+        ImapFunctionState::$hydrationOverviewRows[0]->size = 1025;
+        $connector = imapConnectorForTest();
+        $reference = [
+            'provider_message_id' => 'imap:INBOX:123:456',
+            'provider_remote_id' => '456',
+            'uid_validity' => 123,
+        ];
+
+        expect(fn () => $connector->fetchEmail($reference))
+            ->toThrow(InboundEmailRejected::class)
+            ->and(ImapFunctionState::$hydrationOverviewCalls)->toBe(1)
+            ->and(ImapFunctionState::$structureCalls)->toBe(0)
+            ->and(ImapFunctionState::$fetchBodySections)->toBe([]);
+    });
+
+    test('IMAP fails closed when server-side size admission cannot classify the message', function () {
+        config(['attachments.max_provider_message_bytes' => 1024]);
+        ImapFunctionState::$searchResultsByCriteria['UID 456 NOT LARGER 1024'] = false;
+        $connector = imapConnectorForTest();
+        $reference = [
+            'provider_message_id' => 'imap:INBOX:123:456',
+            'provider_remote_id' => '456',
+            'uid_validity' => 123,
+        ];
+
+        expect(fn () => $connector->fetchEmail($reference))
+            ->toThrow(RuntimeException::class, 'size admission is unavailable')
+            ->and(ImapFunctionState::$searchCalls)->toBe(2)
+            ->and(ImapFunctionState::$hydrationOverviewCalls)->toBe(0)
+            ->and(ImapFunctionState::$structureCalls)->toBe(0)
+            ->and(ImapFunctionState::$fetchBodySections)->toBe([]);
+    });
+
+    test('IMAP rejects a mismatched UID returned by server-side size admission', function () {
+        config(['attachments.max_provider_message_bytes' => 1024]);
+        ImapFunctionState::$searchResultsByCriteria['UID 456 LARGER 1024'] = [457];
+        $connector = imapConnectorForTest();
+        $reference = [
+            'provider_message_id' => 'imap:INBOX:123:456',
+            'provider_remote_id' => '456',
+            'uid_validity' => 123,
+        ];
+
+        expect(fn () => $connector->fetchEmail($reference))
+            ->toThrow(RuntimeException::class, 'unexpected message identity')
+            ->and(ImapFunctionState::$searchCalls)->toBe(1)
+            ->and(ImapFunctionState::$hydrationOverviewCalls)->toBe(0)
+            ->and(ImapFunctionState::$structureCalls)->toBe(0)
+            ->and(ImapFunctionState::$fetchBodySections)->toBe([]);
+    });
+
+    test('IMAP rejects unavailable or malformed live size metadata before hydration', function (array|false $overviews) {
+        ImapFunctionState::$hydrationOverviewRows = $overviews;
+        $connector = imapConnectorForTest();
+        $reference = [
+            'provider_message_id' => 'imap:INBOX:123:456',
+            'provider_remote_id' => '456',
+            'uid_validity' => 123,
+        ];
+
+        expect(fn () => $connector->fetchEmail($reference))->toThrow(RuntimeException::class)
+            ->and(ImapFunctionState::$searchCalls)->toBe(2)
+            ->and(ImapFunctionState::$headerInfoCalls)->toBe(0)
+            ->and(ImapFunctionState::$structureCalls)->toBe(0)
+            ->and(ImapFunctionState::$fetchHeaderCalls)->toBe(0)
+            ->and(ImapFunctionState::$fetchBodySections)->toBe([]);
+    })->with([
+        'provider failure' => false,
+        'missing size' => [[(object) ['uid' => 456]]],
+        'malformed size' => [[(object) ['uid' => 456, 'size' => 'large']]],
+        'negative size' => [[(object) ['uid' => 456, 'size' => -1]]],
+        'mismatched UID' => [[(object) ['uid' => 457, 'size' => 1]]],
+    ]);
+
     test('IMAP rejects attachment metadata over the count limit before fetching attachment content', function () {
         config(['attachments.max_files_per_message' => 10]);
         ImapFunctionState::$attachmentCount = 11;
@@ -283,7 +508,7 @@ namespace {
         expect($message['attachments'])->toBe([])
             ->and($message['attachment_rejection']['reason_code'])->toBe('too_many_files')
             ->and($message['attachment_rejection']['reported_count'])->toBe(11)
-            ->and(ImapFunctionState::$fetchBodyFlags)->toBe([FT_PEEK]);
+            ->and(ImapFunctionState::$fetchBodyFlags)->toBe([FT_PEEK | FT_UID]);
     });
 
     test('IMAP recursively rejects an oversized inline binary part before fetching its content', function () {

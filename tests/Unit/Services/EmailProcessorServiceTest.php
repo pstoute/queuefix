@@ -4,6 +4,7 @@ use App\Enums\AttachmentScanStatus;
 use App\Enums\TicketStatus;
 use App\Models\Attachment;
 use App\Models\Customer;
+use App\Models\InboundEmailReceipt;
 use App\Models\Mailbox;
 use App\Models\Message;
 use App\Models\Setting;
@@ -42,6 +43,27 @@ function secureReplyAddress(Ticket $ticket, Mailbox $mailbox): string
     return app(TicketReplyCapabilityService::class)->replyAddress($ticket)
         ?? throw new RuntimeException('A secure reply address was not created.');
 }
+
+test('provider-level rejection receipts are bounded and idempotent', function () {
+    $mailbox = Mailbox::factory()->create();
+    $reference = [
+        'provider_message_id' => 'imap:INBOX:123:456',
+        'provider_remote_id' => '456',
+        'uid_validity' => 123,
+    ];
+
+    $this->emailProcessor->recordInboundEmailRejection($reference, $mailbox, 'message_too_large');
+    $this->emailProcessor->recordInboundEmailRejection($reference, $mailbox, 'message_too_large');
+
+    $receipt = InboundEmailReceipt::query()->sole();
+    expect($receipt->disposition)->toBe('rejected')
+        ->and($receipt->rejection_reason)->toBe('message_too_large')
+        ->and(fn () => $this->emailProcessor->recordInboundEmailRejection(
+            $reference,
+            $mailbox,
+            str_repeat('x', 65),
+        ))->toThrow(UnexpectedValueException::class, 'rejection reason is invalid');
+});
 
 test('creating new ticket from new sender', function () {
     $mailbox = Mailbox::factory()->create();

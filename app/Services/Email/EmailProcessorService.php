@@ -41,16 +41,7 @@ class EmailProcessorService
         try {
             $emailData = $this->normalizer->normalize($emailData);
         } catch (InboundEmailRejected $exception) {
-            InboundEmailReceipt::firstOrCreate(
-                [
-                    'mailbox_id' => $mailbox->id,
-                    'idempotency_key' => $idempotencyKey,
-                ],
-                [
-                    'disposition' => 'rejected',
-                    'rejection_reason' => $exception->reasonCode,
-                ],
-            );
+            $this->recordInboundEmailRejection($emailData, $mailbox, $exception->reasonCode);
 
             return null;
         }
@@ -99,6 +90,25 @@ class EmailProcessorService
             }
             throw $exception;
         }
+    }
+
+    /** @param array<string, mixed> $emailData */
+    public function recordInboundEmailRejection(array $emailData, Mailbox $mailbox, string $reasonCode): void
+    {
+        if (preg_match('/\A[a-z0-9_]{1,64}\z/D', $reasonCode) !== 1) {
+            throw new UnexpectedValueException('Inbound email rejection reason is invalid.');
+        }
+
+        InboundEmailReceipt::firstOrCreate(
+            [
+                'mailbox_id' => $mailbox->id,
+                'idempotency_key' => $this->idempotencyKey($emailData, $mailbox),
+            ],
+            [
+                'disposition' => 'rejected',
+                'rejection_reason' => $reasonCode,
+            ],
+        );
     }
 
     /**
