@@ -41,7 +41,7 @@ class UserManagementController extends Controller
             'role' => 'required|string|in:'.implode(',', array_column(UserRole::cases(), 'value')),
         ]);
 
-        User::create([
+        $this->staffAccounts->create([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'role' => UserRole::from($validated['role']),

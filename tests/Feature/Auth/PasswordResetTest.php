@@ -712,10 +712,13 @@ class PasswordResetTest extends TestCase
         $magicLink = app(MagicLinkService::class)->issueStaff($validatedBeforeReset);
 
         $this->assertNotNull($magicLink);
-        $this->assertTrue(app(MagicLinkService::class)->consumeStaff(
-            $validatedBeforeReset,
-            $magicLink['token'],
-        ));
+        $this->assertInstanceOf(
+            User::class,
+            app(MagicLinkService::class)->consumeStaff(
+                $validatedBeforeReset,
+                $magicLink['token'],
+            ),
+        );
 
         $token = Password::broker()->createToken($user);
         $this->post('/reset-password', [

@@ -66,6 +66,27 @@ test('inviting admin user', function () {
     ]);
 });
 
+test('inviting a user clears recovery state inherited from a released email', function () {
+    actingAs($this->admin);
+
+    DB::table('password_reset_tokens')->insert([
+        'email' => 'released@example.com',
+        'token' => 'stale-token-hash',
+        'created_at' => now(),
+    ]);
+
+    post(route('settings.users.store'), [
+        'name' => 'Replacement Agent',
+        'email' => 'released@example.com',
+        'role' => UserRole::Agent->value,
+    ])
+        ->assertRedirect()
+        ->assertSessionHas('success');
+
+    $this->assertDatabaseHas('users', ['email' => 'released@example.com']);
+    $this->assertDatabaseMissing('password_reset_tokens', ['email' => 'released@example.com']);
+});
+
 test('updating user role', function () {
     actingAs($this->admin);
 

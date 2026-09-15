@@ -8,6 +8,12 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 
 test('the bootstrap command creates one unique administrator', function () {
+    DB::table('password_reset_tokens')->insert([
+        'email' => 'owner@example.com',
+        'token' => 'stale-token-hash',
+        'created_at' => now(),
+    ]);
+
     $this->artisan('queuefix:bootstrap-admin', [
         '--name' => 'QueueFix Owner',
         '--email' => 'Owner@Example.com',
@@ -25,7 +31,8 @@ test('the bootstrap command creates one unique administrator', function () {
         ->and($admin->is_active)->toBeTrue()
         ->and($admin->email_verified_at)->not->toBeNull()
         ->and($admin->password)->not->toBe('QueueFix-Owner-2026!')
-        ->and(Hash::check('QueueFix-Owner-2026!', $admin->password))->toBeTrue();
+        ->and(Hash::check('QueueFix-Owner-2026!', $admin->password))->toBeTrue()
+        ->and(DB::table('password_reset_tokens')->where('email', 'owner@example.com')->exists())->toBeFalse();
 });
 
 test('the bootstrap command rejects weak or mismatched passwords', function (string $password, string $confirmation) {
@@ -86,6 +93,11 @@ test('the bootstrap command rotates the legacy administrator without changing it
     ]);
     app(MagicLinkService::class)->issueStaff($legacyAdmin);
     $resetToken = Password::broker()->createToken($legacyAdmin);
+    DB::table('password_reset_tokens')->insert([
+        'email' => 'owner@example.com',
+        'token' => 'stale-destination-token-hash',
+        'created_at' => now(),
+    ]);
 
     $this->artisan('queuefix:bootstrap-admin', [
         '--name' => 'QueueFix Owner',
@@ -108,5 +120,6 @@ test('the bootstrap command rotates the legacy administrator without changing it
         ->and(DB::table('sessions')->where('user_id', $legacyAdmin->id)->exists())->toBeFalse()
         ->and(DB::table('magic_link_tokens')->where('authenticatable_id', $legacyAdmin->id)->exists())->toBeFalse()
         ->and(DB::table('password_reset_tokens')->where('email', 'admin@example.com')->exists())->toBeFalse()
+        ->and(DB::table('password_reset_tokens')->where('email', 'owner@example.com')->exists())->toBeFalse()
         ->and(Password::broker()->tokenExists($rotatedAdmin, $resetToken))->toBeFalse();
 });
