@@ -117,6 +117,54 @@ $networkSubnet = (string) ($ipamConfig['subnet'] ?? '');
 $networkGateway = (string) ($ipamConfig['gateway'] ?? '');
 $databasePasswordFile = '/run/queuefix-secrets/database-password';
 $databaseSecretDirectory = dirname($databasePasswordFile);
+$expectedImages = [
+    'application-cache' => 'busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662',
+    'database-secret' => 'busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662',
+    'database-credentials' => 'postgres:16.15-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685',
+    'postgres' => 'postgres:16.15-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685',
+    'redis' => 'redis:7.4.11-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf',
+    'mailpit' => 'axllent/mailpit:v1.31.1@sha256:98b916bd3c8d61f7633a52d3ea2f58d00620cb01ca57ab59edde68c347a95365',
+];
+
+foreach ($expectedImages as $serviceName => $expectedImage) {
+    if (($services[$serviceName]['image'] ?? null) !== $expectedImage) {
+        $failures[] = "{$serviceName} must use its reviewed tag-and-digest image reference.";
+    }
+}
+
+$helperCapabilities = [
+    'application-cache' => ['DAC_OVERRIDE'],
+    'database-secret' => [],
+    'database-credentials' => [],
+];
+
+foreach ($helperCapabilities as $serviceName => $expectedCapabilities) {
+    $service = $services[$serviceName] ?? [];
+    $droppedCapabilities = array_values($service['cap_drop'] ?? []);
+    $addedCapabilities = array_values($service['cap_add'] ?? []);
+    sort($addedCapabilities);
+    sort($expectedCapabilities);
+
+    if (($service['read_only'] ?? null) !== true) {
+        $failures[] = "{$serviceName} must use a read-only root filesystem.";
+    }
+
+    if ($droppedCapabilities !== ['ALL']) {
+        $failures[] = "{$serviceName} must drop every Linux capability.";
+    }
+
+    if ($addedCapabilities !== $expectedCapabilities) {
+        $failures[] = "{$serviceName} must receive only its required Linux capabilities.";
+    }
+
+    if (! in_array('no-new-privileges:true', $service['security_opt'] ?? [], true)) {
+        $failures[] = "{$serviceName} must prevent privilege escalation.";
+    }
+
+    if (($service['privileged'] ?? false) !== false) {
+        $failures[] = "{$serviceName} must not run as a privileged container.";
+    }
+}
 
 if (! ipv4CidrContains($networkSubnet, $networkGateway)) {
     $failures[] = 'The queuefix network must define a valid IPv4 subnet and gateway on that subnet.';
