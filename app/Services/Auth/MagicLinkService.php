@@ -17,7 +17,7 @@ final class MagicLinkService
     private const STAFF_GUARD = 'web';
 
     /**
-     * @return array{token: non-empty-string, expires_at: CarbonInterface}|null
+     * @return array{token: non-empty-string, expires_at: CarbonInterface, user: User}|null
      */
     public function issueStaff(User $user): ?array
     {
@@ -28,7 +28,10 @@ final class MagicLinkService
                 return null;
             }
 
-            return $this->issue(self::STAFF_GUARD, (string) $staff->getKey());
+            return [
+                ...$this->issue(self::STAFF_GUARD, (string) $staff->getKey()),
+                'user' => $staff,
+            ];
         });
     }
 
@@ -44,18 +47,26 @@ final class MagicLinkService
         });
     }
 
-    public function consumeStaff(User $user, #[\SensitiveParameter] string $token): bool
+    public function consumeStaff(User $user, #[\SensitiveParameter] string $token): ?User
     {
-        return DB::transaction(function () use ($user, $token): bool {
+        return DB::transaction(function () use ($user, $token): ?User {
             $staff = User::query()->lockForUpdate()->find($user->getKey());
 
             if (! $staff?->is_active) {
                 $this->revoke(self::STAFF_GUARD, (string) $user->getKey());
 
-                return false;
+                return null;
             }
 
-            return $this->consume(self::STAFF_GUARD, (string) $staff->getKey(), $token);
+            if (! $this->consume(self::STAFF_GUARD, (string) $staff->getKey(), $token)) {
+                return null;
+            }
+
+            if (! $staff->email_verified_at) {
+                $staff->forceFill(['email_verified_at' => now()])->save();
+            }
+
+            return $staff;
         });
     }
 

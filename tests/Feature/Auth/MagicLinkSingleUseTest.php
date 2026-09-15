@@ -5,6 +5,7 @@ use App\Mail\MagicLinkMail;
 use App\Models\Customer;
 use App\Models\User;
 use App\Services\Auth\MagicLinkService;
+use App\Services\Auth\StaffAccountLifecycleService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -131,6 +132,80 @@ test('resending a staff magic link invalidates the previous link', function () {
     $this->assertAuthenticatedAs($user);
 });
 
+test('changing a staff email invalidates links issued to the former address', function () {
+    $user = User::factory()->create([
+        'email' => 'former@example.com',
+        'email_verified_at' => now(),
+    ]);
+    $url = requestStaffMagicLink($user);
+
+    $this
+        ->actingAs($user)
+        ->patch('/profile', [
+            'name' => $user->name,
+            'email' => 'replacement@example.com',
+            'current_password' => 'password',
+        ])
+        ->assertRedirect('/profile')
+        ->assertSessionHasNoErrors();
+
+    Auth::logout();
+    session()->invalidate();
+    Auth::forgetGuards();
+
+    get($url)
+        ->assertRedirect(route('login'))
+        ->assertSessionHas('error', 'This magic link has expired or is invalid.');
+
+    $this->assertGuest();
+    expect($user->fresh()->email_verified_at)->toBeNull();
+});
+
+test('staff magic link issuance returns the locked current recipient', function () {
+    $user = User::factory()->create(['email' => 'former@example.com']);
+    $staleUser = User::query()->findOrFail($user->id);
+
+    User::query()->whereKey($user->id)->update(['email' => 'current@example.com']);
+
+    $magicLink = app(MagicLinkService::class)->issueStaff($staleUser);
+
+    expect($magicLink)->not->toBeNull()
+        ->and($magicLink['user'])->toBeInstanceOf(User::class)
+        ->and($magicLink['user']->email)->toBe('current@example.com');
+});
+
+test('an email change fences a magic login that consumed before the change', function () {
+    $service = app(MagicLinkService::class);
+    $user = User::factory()->create([
+        'email' => 'former@example.com',
+        'email_verified_at' => null,
+    ]);
+    $magicLink = $service->issueStaff($user);
+
+    expect($magicLink)->not->toBeNull();
+
+    $consumedUser = $service->consumeStaff($user, $magicLink['token']);
+
+    expect($consumedUser)->toBeInstanceOf(User::class)
+        ->and($consumedUser->email_verified_at)->not->toBeNull();
+
+    app(StaffAccountLifecycleService::class)->updateProfile(
+        $user,
+        ['name' => $user->name, 'email' => 'replacement@example.com'],
+        'password',
+    );
+
+    Auth::login($consumedUser);
+    Auth::forgetGuards();
+
+    get(route('agent.tickets.index'))
+        ->assertRedirect(route('login'))
+        ->assertSessionHas('error', 'Your session is no longer valid. Please sign in again.');
+
+    $this->assertGuest();
+    expect($user->fresh()->email_verified_at)->toBeNull();
+});
+
 test('tokens are bound to the account and guard', function () {
     $service = app(MagicLinkService::class);
     $firstUser = User::factory()->create();
@@ -139,10 +214,10 @@ test('tokens are bound to the account and guard', function () {
     $magicLink = $service->issueStaff($firstUser);
 
     expect($magicLink)->not->toBeNull()
-        ->and($service->consumeStaff($secondUser, $magicLink['token']))->toBeFalse()
+        ->and($service->consumeStaff($secondUser, $magicLink['token']))->toBeNull()
         ->and($service->consumeCustomer($customer, $magicLink['token']))->toBeFalse()
-        ->and($service->consumeStaff($firstUser, $magicLink['token']))->toBeTrue()
-        ->and($service->consumeStaff($firstUser, $magicLink['token']))->toBeFalse();
+        ->and($service->consumeStaff($firstUser, $magicLink['token']))->toBeInstanceOf(User::class)
+        ->and($service->consumeStaff($firstUser, $magicLink['token']))->toBeNull();
 });
 
 test('database expiry rejects a still correctly shaped token', function () {
@@ -166,7 +241,7 @@ test('deactivation invalidates an outstanding staff magic link', function () {
 
     $user->update(['is_active' => false]);
 
-    expect($service->consumeStaff($user, $magicLink['token']))->toBeFalse()
+    expect($service->consumeStaff($user, $magicLink['token']))->toBeNull()
         ->and(DB::table('magic_link_tokens')->where('authenticatable_id', $user->id)->exists())->toBeFalse();
 });
 

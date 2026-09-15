@@ -41,13 +41,15 @@ class MagicLinkController extends Controller
             return back()->with('status', 'If an account exists with that email, a magic link has been sent.');
         }
 
+        $recipient = $magicLink['user'];
+
         $url = URL::temporarySignedRoute(
             'auth.magic-link.verify',
             $magicLink['expires_at'],
-            ['user' => $user->id, 'token' => $magicLink['token']]
+            ['user' => $recipient->id, 'token' => $magicLink['token']]
         );
 
-        Mail::to($user->email)->send(new MagicLinkMail($url, $user));
+        Mail::to($recipient->email)->send(new MagicLinkMail($url, $recipient));
 
         return back()->with('status', 'If an account exists with that email, a magic link has been sent.');
     }
@@ -61,16 +63,14 @@ class MagicLinkController extends Controller
 
         $token = $request->string('token')->toString();
 
-        if (! $this->magicLinks->consumeStaff($user, $token)) {
+        $verifiedUser = $this->magicLinks->consumeStaff($user, $token);
+
+        if ($verifiedUser === null) {
             return redirect()->route('login')
                 ->with('error', 'This magic link has expired or is invalid.');
         }
 
-        Auth::login($user);
-
-        if (! $user->email_verified_at) {
-            $user->update(['email_verified_at' => now()]);
-        }
+        Auth::login($verifiedUser);
 
         return redirect()->intended(route('agent.tickets.index'));
     }
