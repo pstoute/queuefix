@@ -206,6 +206,9 @@ jobs:
       - name: Verify server package installation
         run: bash tests/scripts/setup-server-security-test.sh
 
+      - name: Verify provisioning private-key handling
+        run: bash tests/scripts/provision-demo-private-key-test.sh
+
       - name: Verify updater backup handling
         run: bash tests/scripts/update-docker-backup-test.sh
 
