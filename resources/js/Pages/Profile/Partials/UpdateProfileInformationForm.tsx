@@ -18,16 +18,26 @@ export default function UpdateProfileInformation({
 }) {
     const user = usePage<PageProps>().props.auth.user;
 
-    const { data, setData, patch, errors, processing, recentlySuccessful } =
-        useForm<{ name: string; email: string }>({
-            name: user.name,
-            email: user.email,
-        });
+    const {
+        data,
+        setData,
+        patch,
+        errors,
+        processing,
+        recentlySuccessful,
+        reset,
+    } = useForm<{ name: string; email: string; current_password: string }>({
+        name: user.name,
+        email: user.email,
+        current_password: '',
+    });
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
 
-        patch(route('profile.update'));
+        patch(route('profile.update'), {
+            onSuccess: () => reset('current_password'),
+        });
     };
 
     return (
@@ -74,6 +84,38 @@ export default function UpdateProfileInformation({
 
                     <InputError className="mt-2" message={errors.email} />
                 </div>
+
+                {data.email !== user.email && (
+                    <div>
+                        <InputLabel
+                            htmlFor="current_password"
+                            value="Current Password"
+                        />
+
+                        <TextInput
+                            id="current_password"
+                            type="password"
+                            className="mt-1 block w-full"
+                            value={data.current_password}
+                            onChange={(e) =>
+                                setData('current_password', e.target.value)
+                            }
+                            required
+                            autoComplete="current-password"
+                        />
+
+                        <p className="mt-2 text-sm text-gray-600">
+                            Confirm your current password to change your email.
+                            If you use passwordless sign-in, sign out and use
+                            Forgot Password first to set one.
+                        </p>
+
+                        <InputError
+                            className="mt-2"
+                            message={errors.current_password}
+                        />
+                    </div>
+                )}
 
                 {mustVerifyEmail && user.email_verified_at === null && (
                     <div>
