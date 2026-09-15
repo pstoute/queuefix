@@ -3,6 +3,7 @@
 namespace App\Services\Email;
 
 use App\Exceptions\AttachmentRejected;
+use App\Exceptions\InboundEmailRejected;
 use App\Models\Mailbox;
 use App\Services\Attachments\InboundAttachmentPolicy;
 use Illuminate\Support\Facades\Log;
@@ -153,31 +154,19 @@ class ImapConnector implements InboundEmailConnector
             throw new \UnexpectedValueException('IMAP provider reference is invalid or belongs to an expired UID epoch.');
         }
 
-        $emailNumber = imap_msgno($this->connection, $uid);
-        if (! $emailNumber) {
-            throw new \UnexpectedValueException('IMAP provider message is no longer available.');
+        $this->rejectOversizedMessage($uid);
+        [$overview, $reportedBytes] = $this->fetchBoundedOverview($uid);
+
+        if ($reportedBytes > $this->bodyPolicy->maxProviderMessageBytes()) {
+            throw new InboundEmailRejected('message_too_large');
         }
 
-        return $this->parseEmail($emailNumber);
+        return $this->parseEmail($uid, $overview);
     }
 
-    private function parseEmail(int $emailNumber): array
+    private function parseEmail(int $uid, object $overview): array
     {
-        $uid = imap_uid($this->connection, $emailNumber);
-
-        if (! $uid || ! $this->uidValidity) {
-            throw new \UnexpectedValueException('IMAP message is missing a stable provider identity.');
-        }
-
-        $header = imap_headerinfo($this->connection, $emailNumber);
-        $structure = imap_fetchstructure($this->connection, $emailNumber);
-
-        $fromAddress = $header->from[0]->mailbox.'@'.$header->from[0]->host;
-        $fromName = $header->from[0]->personal ?? null;
-
-        $toAddress = isset($header->to[0])
-            ? $header->to[0]->mailbox.'@'.$header->to[0]->host
-            : null;
+        $structure = imap_fetchstructure($this->connection, $uid, FT_UID);
 
         $parts = $this->leafParts($structure);
         if ($parts === null) {
@@ -191,28 +180,14 @@ class ImapConnector implements InboundEmailConnector
             ];
             $body = $this->bodyPolicy->omitted();
         } else {
-            $attachmentResult = $this->getAttachments($emailNumber, $parts);
-            $body = $this->getBody($emailNumber, $parts);
+            $attachmentResult = $this->getAttachments($uid, $parts);
+            $body = $this->getBody($uid, $parts);
         }
 
-        $rawHeader = imap_fetchheader($this->connection, $emailNumber);
-        $messageId = $this->extractHeader($rawHeader, 'Message-ID');
-        $inReplyTo = $this->extractHeader($rawHeader, 'In-Reply-To');
-        $references = $this->extractHeader($rawHeader, 'References');
-
         $emailData = [
-            'provider_message_id' => "imap:INBOX:{$this->uidValidity}:{$uid}",
-            'provider_remote_id' => (string) $uid,
-            'from_email' => $fromAddress,
-            'from_name' => $fromName ? imap_utf8($fromName) : null,
-            'to_email' => $toAddress,
-            'subject' => $header->subject ? imap_utf8($header->subject) : null,
+            ...$this->messageMetadata($overview, $uid),
             'body_text' => $body['text'] ?? null,
             'body_html' => $body['html'] ?? null,
-            'message_id' => $messageId,
-            'in_reply_to' => $inReplyTo,
-            'references' => $references,
-            'date' => $header->date ?? null,
             'attachments' => $attachmentResult['attachments'],
         ];
 
@@ -253,7 +228,7 @@ class ImapConnector implements InboundEmailConnector
      * @param  list<array{part: object, section: string}>  $parts
      * @return array{text: ?string, html: ?string}
      */
-    private function getBody(int $emailNumber, array $parts): array
+    private function getBody(int $uid, array $parts): array
     {
         $body = ['text' => null, 'html' => null];
         $bodyParts = array_values(array_filter(
@@ -284,7 +259,7 @@ class ImapConnector implements InboundEmailConnector
             foreach ($bodyParts as $descriptor) {
                 $part = $descriptor['part'];
                 $content = $this->fetchPartContent(
-                    $emailNumber,
+                    $uid,
                     $descriptor['section'],
                     (int) ($part->encoding ?? 0),
                 );
@@ -321,7 +296,7 @@ class ImapConnector implements InboundEmailConnector
      * @param  list<array{part: object, section: string}>  $parts
      * @return array{attachments: list<array{filename: string, content: string, mime_type: string, size: int}>, rejection: ?array{reason_code: string, reported_count: int, reported_bytes: int}}
      */
-    private function getAttachments(int $emailNumber, array $parts): array
+    private function getAttachments(int $uid, array $parts): array
     {
         $descriptors = [];
 
@@ -354,7 +329,7 @@ class ImapConnector implements InboundEmailConnector
         try {
             foreach ($descriptors as $descriptor) {
                 $content = $this->fetchPartContent(
-                    $emailNumber,
+                    $uid,
                     $descriptor['section'],
                     (int) $descriptor['encoding'],
                 );
@@ -377,9 +352,9 @@ class ImapConnector implements InboundEmailConnector
         return ['attachments' => $attachments, 'rejection' => null];
     }
 
-    private function fetchPartContent(int $emailNumber, string $section, int $encoding): string
+    private function fetchPartContent(int $uid, string $section, int $encoding): string
     {
-        $content = imap_fetchbody($this->connection, $emailNumber, $section, FT_PEEK);
+        $content = imap_fetchbody($this->connection, $uid, $section, FT_PEEK | FT_UID);
 
         if (! is_string($content)) {
             throw new \RuntimeException('IMAP message part fetch failed.');
@@ -498,13 +473,124 @@ class ImapConnector implements InboundEmailConnector
         return $type.'/'.strtolower((string) ($part->subtype ?? 'octet-stream'));
     }
 
-    private function extractHeader(string $rawHeader, string $headerName): ?string
+    private function rejectOversizedMessage(int $uid): void
     {
-        if (preg_match('/^'.preg_quote($headerName, '/').':\s*(.+?)$/mi', $rawHeader, $matches)) {
-            return trim($matches[1]);
+        $maxBytes = $this->bodyPolicy->maxProviderMessageBytes();
+
+        if ($this->matchesSearch($uid, "UID {$uid} LARGER {$maxBytes}")) {
+            throw new InboundEmailRejected('message_too_large');
         }
 
-        return null;
+        if (! $this->matchesSearch($uid, "UID {$uid} NOT LARGER {$maxBytes}")) {
+            throw new \RuntimeException('IMAP message size admission is unavailable.');
+        }
+    }
+
+    private function matchesSearch(int $uid, string $criteria): bool
+    {
+        $matches = imap_search($this->connection, $criteria, SE_UID);
+
+        if ($matches === false) {
+            return false;
+        }
+
+        if (count($matches) !== 1) {
+            throw new \RuntimeException('IMAP size admission returned an unexpected result.');
+        }
+
+        $matchedUid = filter_var(array_values($matches)[0], FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+
+        if ($matchedUid === false || $matchedUid !== $uid) {
+            throw new \RuntimeException('IMAP size admission returned an unexpected message identity.');
+        }
+
+        return true;
+    }
+
+    /** @return array{0: object, 1: int} */
+    private function fetchBoundedOverview(int $uid): array
+    {
+        $overviews = imap_fetch_overview($this->connection, (string) $uid, FT_UID);
+
+        if (! is_array($overviews) || count($overviews) !== 1) {
+            throw new \RuntimeException('IMAP message size metadata is unavailable.');
+        }
+
+        $overview = array_values($overviews)[0];
+        $overviewUid = filter_var($overview->uid ?? null, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        $reportedBytes = filter_var($overview->size ?? null, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 0],
+        ]);
+
+        if ($overviewUid === false || $overviewUid !== $uid || $reportedBytes === false) {
+            throw new \RuntimeException('IMAP message size metadata is invalid.');
+        }
+
+        return [$overview, $reportedBytes];
+    }
+
+    /** @return array<string, mixed> */
+    private function messageMetadata(object $overview, int $uid): array
+    {
+        [$fromAddress, $fromName] = $this->parseOverviewAddress($overview->from ?? null);
+        [$toAddress] = $this->parseOverviewAddress($overview->to ?? null);
+
+        return [
+            'provider_message_id' => "imap:INBOX:{$this->uidValidity}:{$uid}",
+            'provider_remote_id' => (string) $uid,
+            'from_email' => $fromAddress,
+            'from_name' => $fromName,
+            'to_email' => $toAddress,
+            'subject' => $this->decodeOverviewHeader($overview->subject ?? null),
+            'message_id' => $this->overviewHeader($overview->message_id ?? null),
+            'in_reply_to' => $this->overviewHeader($overview->in_reply_to ?? null),
+            'references' => $this->overviewHeader($overview->references ?? null),
+            'date' => $this->overviewHeader($overview->date ?? null),
+        ];
+    }
+
+    /** @return array{0: string, 1: ?string} */
+    private function parseOverviewAddress(mixed $value): array
+    {
+        if (! is_string($value)
+            || strlen($value) > (InboundEmailNormalizer::MAX_METADATA_BYTES * 2) + 16) {
+            return ['', null];
+        }
+
+        $addresses = imap_rfc822_parse_adrlist($value, '');
+        $address = $addresses[0] ?? null;
+        $mailbox = is_object($address) ? trim((string) ($address->mailbox ?? '')) : '';
+        $host = is_object($address) ? trim((string) ($address->host ?? '')) : '';
+
+        if ($mailbox === '' || $host === '' || $host === '.SYNTAX-ERROR.') {
+            return ['', null];
+        }
+
+        $personal = $this->overviewHeader($address->personal ?? null);
+
+        return [$mailbox.'@'.$host, $personal === null ? null : imap_utf8($personal)];
+    }
+
+    private function decodeOverviewHeader(mixed $value): ?string
+    {
+        $value = $this->overviewHeader($value);
+
+        return $value === null ? null : imap_utf8($value);
+    }
+
+    private function overviewHeader(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return $value === '' ? null : $value;
     }
 
     public function sendEmail(array $data): bool

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Exceptions\InboundEmailRejected;
 use App\Models\InboundEmailReceipt;
 use App\Models\Mailbox;
 use App\Services\Email\EmailProcessorService;
@@ -130,30 +131,47 @@ class ProcessInboundEmailJob implements ShouldQueue
             $acknowledgementData = $this->providerReference;
 
             if (! $receiptExists) {
-                $emailData = $connector->fetchEmail($this->providerReference);
-                $body = ($bodyPolicy ?? new InboundBodyPolicy)->normalize(
-                    $emailData['body_text'] ?? null,
-                    $emailData['body_html'] ?? null,
-                );
-                if (array_key_exists('body_text', $emailData) || $body['text'] !== null) {
-                    $emailData['body_text'] = $body['text'];
-                }
-                if (array_key_exists('body_html', $emailData) || $body['html'] !== null) {
-                    $emailData['body_html'] = $body['html'];
-                }
-                $actualIdentity = trim((string) ($emailData['provider_message_id'] ?? ''));
+                try {
+                    $emailData = $connector->fetchEmail($this->providerReference);
+                } catch (InboundEmailRejected $exception) {
+                    if ($this->claimToken !== null
+                        && ! $claimService->renew($this->mailboxId, $this->providerMessageId(), $this->claimToken)) {
+                        return;
+                    }
 
-                if ($actualIdentity === '' || ! hash_equals($expectedIdentity, $actualIdentity)) {
-                    throw new UnexpectedValueException('The hydrated provider message identity did not match its queued reference.');
-                }
-
-                if ($this->claimToken !== null
-                    && ! $claimService->renew($this->mailboxId, $this->providerMessageId(), $this->claimToken)) {
-                    return;
+                    $processor->recordInboundEmailRejection(
+                        $this->providerReference,
+                        $mailbox,
+                        $exception->reasonCode,
+                    );
+                    $emailData = null;
                 }
 
-                $processor->processInboundEmail($emailData, $mailbox);
-                $acknowledgementData = $emailData;
+                if ($emailData !== null) {
+                    $body = ($bodyPolicy ?? new InboundBodyPolicy)->normalize(
+                        $emailData['body_text'] ?? null,
+                        $emailData['body_html'] ?? null,
+                    );
+                    if (array_key_exists('body_text', $emailData) || $body['text'] !== null) {
+                        $emailData['body_text'] = $body['text'];
+                    }
+                    if (array_key_exists('body_html', $emailData) || $body['html'] !== null) {
+                        $emailData['body_html'] = $body['html'];
+                    }
+                    $actualIdentity = trim((string) ($emailData['provider_message_id'] ?? ''));
+
+                    if ($actualIdentity === '' || ! hash_equals($expectedIdentity, $actualIdentity)) {
+                        throw new UnexpectedValueException('The hydrated provider message identity did not match its queued reference.');
+                    }
+
+                    if ($this->claimToken !== null
+                        && ! $claimService->renew($this->mailboxId, $this->providerMessageId(), $this->claimToken)) {
+                        return;
+                    }
+
+                    $processor->processInboundEmail($emailData, $mailbox);
+                    $acknowledgementData = $emailData;
+                }
             }
 
             if ($this->claimToken !== null
