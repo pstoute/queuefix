@@ -2,6 +2,19 @@
 
 use App\Providers\AppServiceProvider;
 
+test('application boot rejects an invalid canonical URL', function () {
+    $originalUrl = config('app.url');
+
+    config(['app.url' => 'attacker.invalid']);
+
+    try {
+        expect(fn () => (new AppServiceProvider(app()))->boot())
+            ->toThrow(InvalidArgumentException::class, 'APP_URL must be an absolute HTTP(S) URL');
+    } finally {
+        config(['app.url' => $originalUrl]);
+    }
+});
+
 test('an https application promotes a nullable secure session cookie policy', function () {
     $originalUrl = config('app.url');
     $originalSecure = config('session.secure');
